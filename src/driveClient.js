@@ -7,17 +7,29 @@ let driveClient = null;
 function getDrive() {
   if (driveClient) return driveClient;
 
+  const scopes = ['https://www.googleapis.com/auth/drive'];
+  const inlineJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON;
   const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE;
-  if (!keyFile || !fs.existsSync(keyFile)) {
+
+  let auth;
+  if (inlineJson) {
+    // Preferred on a hosting platform: paste the key file's contents into an
+    // env var, since there's usually no easy way to upload a file there.
+    let credentials;
+    try {
+      credentials = JSON.parse(inlineJson);
+    } catch {
+      throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY_JSON is not valid JSON.');
+    }
+    auth = new google.auth.GoogleAuth({ credentials, scopes });
+  } else if (keyFile && fs.existsSync(keyFile)) {
+    // Convenient for local runs: point at the downloaded key file directly.
+    auth = new google.auth.GoogleAuth({ keyFile, scopes });
+  } else {
     throw new Error(
-      `Google service account key file not found at "${keyFile}". Set GOOGLE_SERVICE_ACCOUNT_KEY_FILE in .env.`
+      'No Google service account credentials found. Set GOOGLE_SERVICE_ACCOUNT_KEY_JSON (the key file\'s contents) or GOOGLE_SERVICE_ACCOUNT_KEY_FILE (a local path) in .env.'
     );
   }
-
-  const auth = new google.auth.GoogleAuth({
-    keyFile,
-    scopes: ['https://www.googleapis.com/auth/drive'],
-  });
 
   driveClient = google.drive({ version: 'v3', auth });
   return driveClient;
