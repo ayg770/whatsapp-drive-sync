@@ -13,9 +13,9 @@ import { uploadImages } from './sync.js';
 
 const logger = pino({ level: 'silent' });
 
-const CONNECT_TIMEOUT_MS = 5 * 60 * 1000; // give up if nobody scans the QR in time
-const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // close if connected but never synced
-const KEEP_AFTER_DONE_MS = 2 * 60 * 1000; // keep the final result available to poll for a bit
+const CONNECT_TIMEOUT_MS = 5 * 60 * 1000; // give up if nobody scans the QR / enters the code in time
+const IDLE_TIMEOUT_MS = 60 * 60 * 1000; // stay linked across several syncs; close only after real inactivity
+const HISTORY_GRACE_MS = 6000; // how long to let WhatsApp's history sync arrive before we act on it
 
 const sessions = new Map();
 
@@ -74,6 +74,7 @@ async function connect(session) {
     auth: state,
     logger,
     printQRInTerminal: false,
+    syncFullHistory: true,
   });
   session.sock = sock;
 
@@ -109,7 +110,7 @@ async function connect(session) {
 
       // Give WhatsApp's chat-history sync a moment to arrive so groups can be
       // ordered by recent activity, the same way WhatsApp's own chat list is.
-      await wait(2500);
+      await wait(HISTORY_GRACE_MS);
 
       try {
         const groups = await sock.groupFetchAllParticipating();
@@ -130,13 +131,13 @@ async function connect(session) {
     if (connection === 'close') {
       const statusCode = new Boom(lastDisconnect?.error)?.output?.statusCode;
       const loggedOut = statusCode === DisconnectReason.loggedOut;
-      const shouldReconnect = !loggedOut && session.status !== 'closed' && session.status !== 'done';
+      const shouldReconnect = !loggedOut && session.status !== 'closed';
       if (shouldReconnect) {
         connect(session).catch((err) => {
           session.status = 'error';
           session.error = err.message;
         });
-      } else if (session.status !== 'done') {
+      } else {
         session.status = 'closed';
       }
     }
@@ -185,7 +186,7 @@ export async function syncSession(id, groupIds) {
   if (!groupIds?.length) throw new Error('No groups selected');
 
   session.status = 'syncing';
-  await wait(4000);
+  await wait(HISTORY_GRACE_MS);
 
   const groupNameById = Object.fromEntries((session.groups || []).map((g) => [g.id, g.name]));
   const candidates = Array.from(session.messages.values()).filter((msg) =>
@@ -229,15 +230,17 @@ export async function syncSession(id, groupIds) {
     setGroupLastSynced(groupId, ts);
   }
 
-  session.status = 'done';
+  // Stay linked: the visitor may want to sync another batch of groups without
+  // scanning/pairing again. The link only ends when they close the tab
+  // (which sends a beacon to /close) or after real inactivity.
+  session.status = 'connected';
   session.summary = summary;
-  scheduleExpiry(session, KEEP_AFTER_DONE_MS, 'done');
-  closeSession(id, { logout: true, keepEntry: true });
+  scheduleExpiry(session, IDLE_TIMEOUT_MS, 'idle');
 
   return summary;
 }
 
-export function closeSession(id, { logout = false, keepEntry = false } = {}) {
+export function closeSession(id, { logout = false } = {}) {
   const session = sessions.get(id);
   if (!session) return;
 
@@ -251,12 +254,6 @@ export function closeSession(id, { logout = false, keepEntry = false } = {}) {
   }
 
   removeSessionAuthDir(id);
-
-  if (keepEntry) {
-    session.status = session.status === 'done' ? 'done' : 'closed';
-    setTimeout(() => sessions.delete(id), KEEP_AFTER_DONE_MS);
-  } else {
-    session.status = 'closed';
-    sessions.delete(id);
-  }
+  session.status = 'closed';
+  sessions.delete(id);
 }

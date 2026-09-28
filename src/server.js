@@ -32,6 +32,13 @@ export function startServer(port) {
     res.json({ ok: true });
   });
 
+  // POST alias of the above: navigator.sendBeacon (used to disconnect when
+  // the visitor closes the tab) can only send POST, not DELETE.
+  app.post('/api/session/:id/close', (req, res) => {
+    closeSession(req.params.id, { logout: true });
+    res.json({ ok: true });
+  });
+
   app.listen(port, () => {
     console.log(`\nOpen http://localhost:${port} to link WhatsApp and sync.\n`);
   });

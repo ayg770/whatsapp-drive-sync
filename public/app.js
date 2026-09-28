@@ -18,6 +18,7 @@ const groupsEl = document.getElementById('groups');
 const searchInput = document.getElementById('searchInput');
 const moreBtn = document.getElementById('moreBtn');
 const syncBtn = document.getElementById('syncBtn');
+const disconnectBtn = document.getElementById('disconnectBtn');
 const retryBtn = document.getElementById('retryBtn');
 const errorText = document.getElementById('errorText');
 const statusEl = document.getElementById('status');
@@ -168,9 +169,6 @@ async function poll() {
     return; // stop polling
   } else if (state.status === 'syncing') {
     showStep('syncing');
-  } else if (state.status === 'done') {
-    showSummary(state.summary);
-    return; // stop polling
   } else {
     showStep('connecting');
   }
@@ -179,9 +177,10 @@ async function poll() {
 }
 
 function showSummary(summary) {
-  showStep('groups');
+  // The link stays open after this — the visitor can pick another set of
+  // groups and sync again without reconnecting, until they close the tab.
   if (!summary || summary.uploaded === 0) {
-    setStatus('אין תמונות חדשות להעלאה מהקבוצות שנבחרו.');
+    setStatus('אין תמונות חדשות להעלאה מהקבוצות שנבחרו. אפשר לנסות שוב בעוד כמה שניות אם ההיסטוריה עוד נטענת.');
   } else {
     const bySenderText = Object.entries(summary.bySender)
       .map(([name, count]) => `${name}: ${count}`)
@@ -190,15 +189,22 @@ function showSummary(summary) {
       `הועלו ${summary.uploaded} תמונות לתיקייה "${summary.folderName}".\n\n${bySenderText}\n\n${summary.folderUrl}`
     );
   }
-  groupsEl.innerHTML = '';
-  moreBtn.classList.add('hidden');
-  searchInput.classList.add('hidden');
-  syncBtn.textContent = 'התחבר שוב ובצע העלאה נוספת';
-  syncBtn.onclick = () => {
-    searchInput.classList.remove('hidden');
-    showStep('choose');
-  };
+  showStep('groups');
 }
+
+function disconnect() {
+  if (!sessionId) return;
+  navigator.sendBeacon(`/api/session/${sessionId}/close`);
+}
+
+disconnectBtn.addEventListener('click', () => {
+  disconnect();
+  sessionId = null;
+  setStatus('');
+  showStep('choose');
+});
+
+window.addEventListener('pagehide', disconnect);
 
 syncBtn.addEventListener('click', async () => {
   const groupIds = Array.from(selectedIds);
