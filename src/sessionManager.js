@@ -15,7 +15,8 @@ const logger = pino({ level: 'silent' });
 
 const CONNECT_TIMEOUT_MS = 5 * 60 * 1000; // give up if nobody scans the QR / enters the code in time
 const IDLE_TIMEOUT_MS = 60 * 60 * 1000; // stay linked across several syncs; close only after real inactivity
-const HISTORY_GRACE_MS = 6000; // how long to let WhatsApp's history sync arrive before we act on it
+const HISTORY_MAX_WAIT_MS = 2 * 60 * 1000; // like sitting in WhatsApp Web: wait for the full sync, capped
+const HISTORY_POLL_MS = 1000;
 
 const sessions = new Map();
 
@@ -33,8 +34,22 @@ function newSession(id, phoneNumber) {
     summary: null,
     messages: new Map(), // messageId -> raw WA message (candidate group images only)
     chatTimestamps: new Map(), // groupJid -> last activity, to sort groups like WhatsApp's own chat list
+    historyComplete: false, // true once WhatsApp reports its history sync is done (isLatest)
     expireTimer: null,
   };
+}
+
+// Waits for WhatsApp's own "history sync done" signal, capped at maxMs so a
+// slow or unreliable sync never leaves the visitor stuck forever.
+function waitForHistorySync(session, maxMs) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const check = () => {
+      if (session.historyComplete || Date.now() - start >= maxMs) resolve();
+      else setTimeout(check, HISTORY_POLL_MS);
+    };
+    check();
+  });
 }
 
 function trackChatTimestamps(session, chats) {
@@ -108,9 +123,10 @@ async function connect(session) {
       session.pairingCode = null;
       scheduleExpiry(session, IDLE_TIMEOUT_MS, 'idle');
 
-      // Give WhatsApp's chat-history sync a moment to arrive so groups can be
-      // ordered by recent activity, the same way WhatsApp's own chat list is.
-      await wait(HISTORY_GRACE_MS);
+      // Wait for WhatsApp's history sync to actually finish (like staying on
+      // WhatsApp Web until it loads) instead of guessing a fixed delay, so
+      // groups are ordered by real recent activity and photo history is complete.
+      await waitForHistorySync(session, HISTORY_MAX_WAIT_MS);
 
       try {
         const groups = await sock.groupFetchAllParticipating();
@@ -143,11 +159,12 @@ async function connect(session) {
     }
   });
 
-  sock.ev.on('messaging-history.set', ({ chats, messages }) => {
+  sock.ev.on('messaging-history.set', ({ chats, messages, isLatest }) => {
     trackChatTimestamps(session, chats);
     for (const msg of messages || []) {
       if (isGroupImageMessage(msg)) session.messages.set(msg.key.id, msg);
     }
+    if (isLatest) session.historyComplete = true;
   });
 
   sock.ev.on('chats.upsert', (chats) => trackChatTimestamps(session, chats));
@@ -186,7 +203,9 @@ export async function syncSession(id, groupIds) {
   if (!groupIds?.length) throw new Error('No groups selected');
 
   session.status = 'syncing';
-  await wait(HISTORY_GRACE_MS);
+  // The full history wait already happened once at connect time; this is
+  // just a short buffer for anything that trickled in since the last sync.
+  await wait(3000);
 
   const groupNameById = Object.fromEntries((session.groups || []).map((g) => [g.id, g.name]));
   const candidates = Array.from(session.messages.values()).filter((msg) =>
