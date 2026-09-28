@@ -8,7 +8,7 @@ services:
     envVars:
       - key: PORT
         value: 3000
-      - key: GOOGLE_SERVICE_ACCOUNT_KEY_JSON
+      - key: GOOGLE_SERVICE_ACCOUNT_KEY_BASE64
         sync: false
       - key: GOOGLE_DRIVE_PARENT_FOLDER_ID
         sync: false

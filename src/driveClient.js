@@ -8,13 +8,25 @@ function getDrive() {
   if (driveClient) return driveClient;
 
   const scopes = ['https://www.googleapis.com/auth/drive'];
+  const base64Json = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_BASE64;
   const inlineJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON;
   const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE;
 
   let auth;
-  if (inlineJson) {
-    // Preferred on a hosting platform: paste the key file's contents into an
-    // env var, since there's usually no easy way to upload a file there.
+  if (base64Json) {
+    // Most robust for pasting into a hosting dashboard: a single unbroken
+    // line, immune to a text editor accidentally inserting a real line break
+    // in the middle of the long private_key field.
+    let credentials;
+    try {
+      credentials = JSON.parse(Buffer.from(base64Json.trim(), 'base64').toString('utf8'));
+    } catch {
+      throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY_BASE64 could not be decoded into valid JSON.');
+    }
+    auth = new google.auth.GoogleAuth({ credentials, scopes });
+  } else if (inlineJson) {
+    // Paste the key file's contents directly — works, but a text editor can
+    // corrupt the long private_key field by wrapping it onto multiple lines.
     let credentials;
     try {
       credentials = JSON.parse(inlineJson);
@@ -27,7 +39,7 @@ function getDrive() {
     auth = new google.auth.GoogleAuth({ keyFile, scopes });
   } else {
     throw new Error(
-      'No Google service account credentials found. Set GOOGLE_SERVICE_ACCOUNT_KEY_JSON (the key file\'s contents) or GOOGLE_SERVICE_ACCOUNT_KEY_FILE (a local path) in .env.'
+      'No Google service account credentials found. Set GOOGLE_SERVICE_ACCOUNT_KEY_BASE64 (recommended), GOOGLE_SERVICE_ACCOUNT_KEY_JSON, or GOOGLE_SERVICE_ACCOUNT_KEY_FILE in .env.'
     );
   }
 
