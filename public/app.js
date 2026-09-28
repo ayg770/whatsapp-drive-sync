@@ -1,104 +1,166 @@
-const groupsEl = document.getElementById('groups');
-const statusEl = document.getElementById('status');
-const syncBtn = document.getElementById('syncBtn');
-const refreshBtn = document.getElementById('refreshBtn');
-const reselectBtn = document.getElementById('reselectBtn');
+const LAST_SELECTION_KEY = 'wa-drive-sync:last-selection';
 
+const steps = {
+  connecting: document.getElementById('step-connecting'),
+  qr: document.getElementById('step-qr'),
+  groups: document.getElementById('step-groups'),
+  syncing: document.getElementById('step-syncing'),
+  error: document.getElementById('step-error'),
+};
+const qrEl = document.getElementById('qr');
+const groupsEl = document.getElementById('groups');
+const syncBtn = document.getElementById('syncBtn');
+const retryBtn = document.getElementById('retryBtn');
+const errorText = document.getElementById('errorText');
+const statusEl = document.getElementById('status');
+
+let sessionId = null;
+let pollTimer = null;
 let currentGroups = [];
-let lastSelection = [];
+
+function showStep(name) {
+  for (const key of Object.keys(steps)) {
+    steps[key].classList.toggle('hidden', key !== name);
+  }
+}
 
 function setStatus(text) {
   statusEl.textContent = text;
   statusEl.classList.toggle('empty', !text);
 }
 
-function render(selectedIds) {
+function getLastSelection() {
+  try {
+    return JSON.parse(localStorage.getItem(LAST_SELECTION_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLastSelection(ids) {
+  try {
+    localStorage.setItem(LAST_SELECTION_KEY, JSON.stringify(ids));
+  } catch {
+    // ignore storage failures (private browsing etc.)
+  }
+}
+
+function renderGroups(groups) {
+  currentGroups = groups;
+  const lastSelection = getLastSelection();
   groupsEl.innerHTML = '';
-  for (const g of currentGroups) {
+  for (const g of groups) {
     const row = document.createElement('label');
     row.className = 'group';
-
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.value = g.id;
-    checkbox.checked = selectedIds.includes(g.id);
-
+    checkbox.checked = lastSelection.includes(g.id);
     const name = document.createElement('span');
     name.className = 'name';
     name.textContent = g.name;
-
-    const count = document.createElement('span');
-    count.className = 'count';
-    count.textContent = `${g.pendingCount} ממתינות`;
-
-    row.append(checkbox, name, count);
+    row.append(checkbox, name);
     groupsEl.appendChild(row);
   }
 }
 
-async function loadGroups() {
-  setStatus('טוען קבוצות...');
-  const res = await fetch('/api/groups');
-  const data = await res.json();
-  currentGroups = data.groups;
-  lastSelection = data.lastSelection || [];
-  render(lastSelection);
+async function startSession() {
+  showStep('connecting');
   setStatus('');
+  const res = await fetch('/api/session', { method: 'POST' });
+  const data = await res.json();
+  sessionId = data.sessionId;
+  poll();
 }
 
-refreshBtn.addEventListener('click', async () => {
-  setStatus('מרענן רשימת קבוצות מוואטסאפ...');
-  await fetch('/api/groups/refresh', { method: 'POST' });
-  await loadGroups();
-});
+async function poll() {
+  clearTimeout(pollTimer);
+  const res = await fetch(`/api/session/${sessionId}`);
 
-reselectBtn.addEventListener('click', () => {
-  render(lastSelection);
-});
+  if (!res.ok) {
+    showStep('error');
+    errorText.textContent = 'החיבור פג. נסה שוב.';
+    return;
+  }
+
+  const state = await res.json();
+
+  if (state.error) {
+    showStep('error');
+    errorText.textContent = state.error;
+    return;
+  }
+
+  if (state.status === 'waiting_qr' && state.qr) {
+    showStep('qr');
+    qrEl.innerHTML = `<img src="${state.qr}" alt="QR code" />`;
+  } else if (state.status === 'connected' && state.groups) {
+    showStep('groups');
+    renderGroups(state.groups);
+  } else if (state.status === 'syncing') {
+    showStep('syncing');
+  } else if (state.status === 'done') {
+    showSummary(state.summary);
+    return; // stop polling
+  } else {
+    showStep('connecting');
+  }
+
+  pollTimer = setTimeout(poll, 1500);
+}
+
+function showSummary(summary) {
+  showStep('groups');
+  if (!summary || summary.uploaded === 0) {
+    setStatus('אין תמונות חדשות להעלאה מהקבוצות שנבחרו.');
+  } else {
+    const bySenderText = Object.entries(summary.bySender)
+      .map(([name, count]) => `${name}: ${count}`)
+      .join('\n');
+    setStatus(
+      `הועלו ${summary.uploaded} תמונות לתיקייה "${summary.folderName}".\n\n${bySenderText}\n\n${summary.folderUrl}`
+    );
+  }
+  groupsEl.innerHTML = '';
+  syncBtn.textContent = 'התחבר שוב ובצע העלאה נוספת';
+  syncBtn.onclick = () => startSession();
+}
 
 syncBtn.addEventListener('click', async () => {
   const groupIds = Array.from(groupsEl.querySelectorAll('input[type=checkbox]:checked')).map(
     (cb) => cb.value
   );
-
   if (!groupIds.length) {
     setStatus('בחר לפחות קבוצה אחת.');
     return;
   }
-
-  setStatus('מסנכרן, אנא המתן...');
+  saveLastSelection(groupIds);
+  clearTimeout(pollTimer);
   syncBtn.disabled = true;
+  showStep('syncing');
+  setStatus('');
 
   try {
-    const res = await fetch('/api/sync', {
+    const res = await fetch(`/api/session/${sessionId}/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ groupIds }),
     });
     const data = await res.json();
-
     if (!res.ok) {
-      setStatus(`שגיאה: ${data.error}`);
+      showStep('error');
+      errorText.textContent = data.error;
       return;
     }
-
-    if (data.uploaded === 0) {
-      setStatus('אין תמונות חדשות לסנכרון מהקבוצות שנבחרו.');
-    } else {
-      const bySenderText = Object.entries(data.bySender)
-        .map(([name, count]) => `${name}: ${count}`)
-        .join('\n');
-      setStatus(
-        `הועלו ${data.uploaded} תמונות לתיקייה "${data.folderName}".\n\n${bySenderText}\n\n${data.folderUrl}`
-      );
-    }
-
-    await loadGroups();
+    showSummary(data);
   } catch (err) {
-    setStatus(`שגיאה: ${err.message}`);
+    showStep('error');
+    errorText.textContent = err.message;
   } finally {
     syncBtn.disabled = false;
   }
 });
 
-loadGroups();
+retryBtn.addEventListener('click', () => startSession());
+
+startSession();

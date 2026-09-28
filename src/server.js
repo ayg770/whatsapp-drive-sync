@@ -1,49 +1,38 @@
 import path from 'path';
 import express from 'express';
-import { loadGroups, loadCaptured, loadLastSelection } from './store.js';
-import { refreshGroups } from './whatsappListener.js';
-import { exportSelectedGroups } from './sync.js';
+import { createSession, getPublicState, syncSession, closeSession } from './sessionManager.js';
 
 export function startServer(port) {
   const app = express();
   app.use(express.json());
   app.use(express.static(path.resolve('public')));
 
-  app.get('/api/groups', (req, res) => {
-    const groups = loadGroups();
-    const captured = loadCaptured();
-
-    const groupsWithCounts = groups.map((g) => ({
-      ...g,
-      pendingCount: captured.filter((c) => c.groupId === g.id && !c.exported).length,
-    }));
-
-    res.json({
-      groups: groupsWithCounts,
-      lastSelection: loadLastSelection(),
-    });
+  app.post('/api/session', (req, res) => {
+    const id = createSession();
+    res.json({ sessionId: id });
   });
 
-  app.post('/api/groups/refresh', async (req, res) => {
-    try {
-      await refreshGroups();
-      res.json({ ok: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
+  app.get('/api/session/:id', (req, res) => {
+    const state = getPublicState(req.params.id);
+    if (!state) return res.status(404).json({ error: 'Session not found or expired' });
+    res.json(state);
   });
 
-  app.post('/api/sync', async (req, res) => {
+  app.post('/api/session/:id/sync', async (req, res) => {
     try {
-      const { groupIds } = req.body;
-      const result = await exportSelectedGroups(groupIds);
-      res.json(result);
+      const summary = await syncSession(req.params.id, req.body.groupIds);
+      res.json(summary);
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
   });
 
+  app.delete('/api/session/:id', (req, res) => {
+    closeSession(req.params.id, { logout: true });
+    res.json({ ok: true });
+  });
+
   app.listen(port, () => {
-    console.log(`\nOpen http://localhost:${port} to select groups and sync.\n`);
+    console.log(`\nOpen http://localhost:${port} to link WhatsApp and sync.\n`);
   });
 }

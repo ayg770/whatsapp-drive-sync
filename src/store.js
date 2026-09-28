@@ -2,13 +2,12 @@ import fs from 'fs';
 import path from 'path';
 
 const DATA_DIR = path.resolve('data');
-const CAPTURED_FILE = path.join(DATA_DIR, 'captured.json');
-const SELECTION_FILE = path.join(DATA_DIR, 'last-selection.json');
-const GROUPS_FILE = path.join(DATA_DIR, 'groups.json');
+const LAST_SYNCED_FILE = path.join(DATA_DIR, 'last-synced.json');
+const SESSIONS_DIR = path.join(DATA_DIR, 'sessions');
 
 function ensureDataDir() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.mkdirSync(path.join(DATA_DIR, 'incoming'), { recursive: true });
+  fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 }
 
 function readJson(file, fallback) {
@@ -24,44 +23,31 @@ function writeJson(file, value) {
   fs.writeFileSync(file, JSON.stringify(value, null, 2));
 }
 
-export function loadCaptured() {
-  return readJson(CAPTURED_FILE, []);
+// Shared across everyone who ever syncs, keyed by WhatsApp group JID, so that
+// two different people syncing the same group don't both upload the same photos.
+export function getGroupLastSynced(groupId) {
+  const all = readJson(LAST_SYNCED_FILE, {});
+  return all[groupId] || 0;
 }
 
-export function saveCaptured(items) {
-  writeJson(CAPTURED_FILE, items);
+export function setGroupLastSynced(groupId, timestampMs) {
+  const all = readJson(LAST_SYNCED_FILE, {});
+  all[groupId] = timestampMs;
+  writeJson(LAST_SYNCED_FILE, all);
 }
 
-export function addCaptured(item) {
-  const items = loadCaptured();
-  items.push(item);
-  saveCaptured(items);
-}
-
-export function loadLastSelection() {
-  return readJson(SELECTION_FILE, { groupIds: [] }).groupIds;
-}
-
-export function saveLastSelection(groupIds) {
-  writeJson(SELECTION_FILE, { groupIds, savedAt: new Date().toISOString() });
-}
-
-export function loadGroups() {
-  return readJson(GROUPS_FILE, []);
-}
-
-export function saveGroups(groups) {
-  writeJson(GROUPS_FILE, groups);
-}
-
-export function incomingDir() {
+// Each visitor gets a private, throwaway folder for their WhatsApp link
+// (deleted again once their sync finishes or their session expires).
+export function sessionAuthDir(sessionId) {
   ensureDataDir();
-  return path.join(DATA_DIR, 'incoming');
+  const dir = path.join(SESSIONS_DIR, sessionId);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
-export function authDir() {
-  ensureDataDir();
-  return path.join(DATA_DIR, 'auth');
+export function removeSessionAuthDir(sessionId) {
+  const dir = path.join(SESSIONS_DIR, sessionId);
+  fs.rmSync(dir, { recursive: true, force: true });
 }
 
 ensureDataDir();

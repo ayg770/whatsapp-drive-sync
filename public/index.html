@@ -3,17 +3,20 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>סנכרון תמונות וואטסאפ לדרייב</title>
+  <title>העלאת תמונות מוואטסאפ לדרייב</title>
   <style>
     body {
       font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
-      max-width: 640px;
+      max-width: 480px;
       margin: 40px auto;
       padding: 0 16px;
       color: #1a1a1a;
       background: #fafafa;
     }
-    h1 { font-size: 1.4rem; }
+    h1 { font-size: 1.3rem; }
+    p.hint { color: #555; }
+    #qr { text-align: center; margin: 24px 0; }
+    #qr img { width: 260px; height: 260px; border: 1px solid #ddd; border-radius: 8px; }
     .group {
       display: flex;
       align-items: center;
@@ -25,41 +28,50 @@
       background: white;
     }
     .group .name { flex: 1; font-weight: 500; }
-    .group .count {
-      font-size: 0.85rem;
-      color: #666;
-      background: #f0f0f0;
-      padding: 2px 8px;
-      border-radius: 12px;
-    }
-    .actions { display: flex; gap: 10px; margin: 16px 0; flex-wrap: wrap; }
     button {
       font-size: 1rem;
       padding: 10px 16px;
       border-radius: 8px;
       border: none;
       cursor: pointer;
+      background: #2563eb;
+      color: white;
+      width: 100%;
+      margin-top: 8px;
     }
-    #syncBtn { background: #2563eb; color: white; }
-    #refreshBtn, #reselectBtn { background: #e5e7eb; color: #1a1a1a; }
+    button:disabled { background: #9ca3af; }
+    button.secondary { background: #e5e7eb; color: #1a1a1a; }
     #status { margin-top: 16px; padding: 12px; border-radius: 8px; background: white; border: 1px solid #ddd; white-space: pre-wrap; }
     #status.empty { display: none; }
     a { color: #2563eb; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
-  <h1>סנכרון תמונות מוואטסאפ לדרייב</h1>
-  <p>בחר את הקבוצות שמהן להוציא תמונות, ואז לחץ "סנכרן עכשיו".</p>
+  <h1>העלאת תמונות מקבוצת וואטסאפ לדרייב</h1>
 
-  <div class="actions">
-    <button id="refreshBtn">רענן רשימת קבוצות</button>
-    <button id="reselectBtn">בחר מהרשימה האחרונה</button>
+  <div id="step-connecting">
+    <p class="hint">מתחבר...</p>
   </div>
 
-  <div id="groups"></div>
+  <div id="step-qr" class="hidden">
+    <p class="hint">סרוק את הקוד עם הוואטסאפ שלך: פתח וואטסאפ ← הגדרות ← מכשירים מקושרים ← קישור מכשיר.</p>
+    <div id="qr"></div>
+  </div>
 
-  <div class="actions">
-    <button id="syncBtn">סנכרן עכשיו</button>
+  <div id="step-groups" class="hidden">
+    <p class="hint">מחובר. בחר את הקבוצות שמהן להוציא תמונות:</p>
+    <div id="groups"></div>
+    <button id="syncBtn">העלה לדרייב</button>
+  </div>
+
+  <div id="step-syncing" class="hidden">
+    <p class="hint">מעלה תמונות, אנא המתן...</p>
+  </div>
+
+  <div id="step-error" class="hidden">
+    <p class="hint" id="errorText"></p>
+    <button id="retryBtn" class="secondary">נסה שוב</button>
   </div>
 
   <div id="status" class="empty"></div>

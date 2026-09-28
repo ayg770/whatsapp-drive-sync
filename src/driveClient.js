@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { Readable } from 'stream';
 import { google } from 'googleapis';
 
 let driveClient = null;
@@ -52,7 +53,7 @@ export async function getOrCreateDateFolder(folderName, parentId) {
   return created.data.id;
 }
 
-export async function uploadFile(filePath, fileName, mimeType, parentId) {
+export async function uploadBuffer(buffer, fileName, mimeType, parentId) {
   const drive = getDrive();
 
   const res = await drive.files.create({
@@ -62,7 +63,7 @@ export async function uploadFile(filePath, fileName, mimeType, parentId) {
     },
     media: {
       mimeType,
-      body: fs.createReadStream(filePath),
+      body: Readable.from(buffer),
     },
     fields: 'id, webViewLink',
   });
