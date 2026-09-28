@@ -19,18 +19,30 @@ const KEEP_AFTER_DONE_MS = 2 * 60 * 1000; // keep the final result available to 
 
 const sessions = new Map();
 
-function newSession(id) {
+function newSession(id, phoneNumber) {
   return {
     id,
     sock: null,
-    status: 'starting', // starting | waiting_qr | connected | syncing | done | error | closed
+    // starting | waiting_qr | waiting_pairing_code | connected | syncing | done | error | closed
+    status: 'starting',
     qr: null,
+    pairingCode: null,
+    phoneNumber: phoneNumber || null,
     groups: null,
     error: null,
     summary: null,
     messages: new Map(), // messageId -> raw WA message (candidate group images only)
+    chatTimestamps: new Map(), // groupJid -> last activity, to sort groups like WhatsApp's own chat list
     expireTimer: null,
   };
+}
+
+function trackChatTimestamps(session, chats) {
+  for (const chat of chats || []) {
+    if (chat.id?.endsWith('@g.us') && chat.conversationTimestamp) {
+      session.chatTimestamps.set(chat.id, Number(chat.conversationTimestamp));
+    }
+  }
 }
 
 function scheduleExpiry(session, ms, reason) {
@@ -42,9 +54,10 @@ function scheduleExpiry(session, ms, reason) {
   }, ms);
 }
 
-export function createSession() {
+export function createSession(phoneNumber) {
   const id = crypto.randomUUID();
-  const session = newSession(id);
+  const cleanPhone = phoneNumber ? String(phoneNumber).replace(/\D/g, '') : null;
+  const session = newSession(id, cleanPhone);
   sessions.set(id, session);
   connect(session).catch((err) => {
     session.status = 'error';
@@ -66,26 +79,49 @@ async function connect(session) {
 
   sock.ev.on('creds.update', saveCreds);
 
+  if (session.phoneNumber && !sock.authState.creds.registered) {
+    try {
+      const rawCode = await sock.requestPairingCode(session.phoneNumber);
+      session.pairingCode = rawCode.match(/.{1,4}/g)?.join('-') || rawCode;
+      session.status = 'waiting_pairing_code';
+      scheduleExpiry(session, CONNECT_TIMEOUT_MS, 'no_scan');
+    } catch (err) {
+      session.status = 'error';
+      session.error = `Could not generate a pairing code: ${err.message}`;
+      return;
+    }
+  }
+
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
-    if (qr) {
+    if (qr && !session.phoneNumber) {
       session.status = 'waiting_qr';
       session.qr = await qrcode.toDataURL(qr);
       scheduleExpiry(session, CONNECT_TIMEOUT_MS, 'no_scan');
     }
 
     if (connection === 'open') {
-      session.status = 'connected';
+      session.status = 'loading_groups';
       session.qr = null;
+      session.pairingCode = null;
       scheduleExpiry(session, IDLE_TIMEOUT_MS, 'idle');
+
+      // Give WhatsApp's chat-history sync a moment to arrive so groups can be
+      // ordered by recent activity, the same way WhatsApp's own chat list is.
+      await wait(2500);
+
       try {
         const groups = await sock.groupFetchAllParticipating();
-        session.groups = Object.values(groups).map((g) => ({
-          id: g.id,
-          name: g.subject,
-          participantCount: g.participants?.length ?? 0,
-        }));
+        session.groups = Object.values(groups)
+          .map((g) => ({
+            id: g.id,
+            name: g.subject,
+            participantCount: g.participants?.length ?? 0,
+            lastActivity: session.chatTimestamps.get(g.id) || 0,
+          }))
+          .sort((a, b) => b.lastActivity - a.lastActivity);
+        session.status = 'connected';
       } catch (err) {
         session.error = `Could not load groups: ${err.message}`;
       }
@@ -106,11 +142,15 @@ async function connect(session) {
     }
   });
 
-  sock.ev.on('messaging-history.set', ({ messages }) => {
+  sock.ev.on('messaging-history.set', ({ chats, messages }) => {
+    trackChatTimestamps(session, chats);
     for (const msg of messages || []) {
       if (isGroupImageMessage(msg)) session.messages.set(msg.key.id, msg);
     }
   });
+
+  sock.ev.on('chats.upsert', (chats) => trackChatTimestamps(session, chats));
+  sock.ev.on('chats.update', (chats) => trackChatTimestamps(session, chats));
 
   sock.ev.on('messages.upsert', ({ messages }) => {
     for (const msg of messages || []) {
@@ -125,6 +165,7 @@ export function getPublicState(id) {
   return {
     status: session.status,
     qr: session.qr,
+    pairingCode: session.pairingCode,
     groups: session.groups,
     error: session.error,
     summary: session.summary,

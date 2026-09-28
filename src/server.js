@@ -8,7 +8,7 @@ export function startServer(port) {
   app.use(express.static(path.resolve('public')));
 
   app.post('/api/session', (req, res) => {
-    const id = createSession();
+    const id = createSession(req.body?.phoneNumber);
     res.json({ sessionId: id });
   });
 

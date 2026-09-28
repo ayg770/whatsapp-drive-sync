@@ -17,6 +17,29 @@
     p.hint { color: #555; }
     #qr { text-align: center; margin: 24px 0; }
     #qr img { width: 260px; height: 260px; border: 1px solid #ddd; border-radius: 8px; }
+    #pairingCode {
+      text-align: center;
+      font-size: 2rem;
+      letter-spacing: 0.1em;
+      font-weight: 700;
+      margin: 24px 0;
+      padding: 16px;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      direction: ltr;
+    }
+    input[type="text"], input[type="tel"] {
+      width: 100%;
+      font-size: 1rem;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+      margin-top: 8px;
+    }
+    .choice { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+    .search-row { margin-bottom: 10px; }
     .group {
       display: flex;
       align-items: center;
@@ -50,6 +73,21 @@
 <body>
   <h1>העלאת תמונות מקבוצת וואטסאפ לדרייב</h1>
 
+  <div id="step-choose">
+    <p class="hint">איך תרצה לחבר את הוואטסאפ שלך?</p>
+    <div class="choice">
+      <button id="chooseQr">סריקת קוד QR (ממכשיר אחר, כמו מחשב)</button>
+      <button id="choosePhone" class="secondary">הזנת קוד ידני (מאותו טלפון)</button>
+    </div>
+  </div>
+
+  <div id="step-phone" class="hidden">
+    <p class="hint">הזן את מספר הטלפון שמחובר לוואטסאפ, עם קידומת מדינה (למשל 972501234567, בלי + ובלי אפסים מיותרים):</p>
+    <input type="tel" id="phoneInput" placeholder="972501234567" />
+    <button id="submitPhone">קבל קוד</button>
+    <button id="backFromPhone" class="secondary">חזרה</button>
+  </div>
+
   <div id="step-connecting">
     <p class="hint">מתחבר...</p>
   </div>
@@ -59,9 +97,22 @@
     <div id="qr"></div>
   </div>
 
+  <div id="step-pairing" class="hidden">
+    <p class="hint">פתח וואטסאפ בטלפון ← הגדרות ← מכשירים מקושרים ← קישור מכשיר ← "קישור באמצעות מספר טלפון במקום זאת", והזן את הקוד:</p>
+    <div id="pairingCode"></div>
+  </div>
+
+  <div id="step-loading-groups" class="hidden">
+    <p class="hint">מחובר. טוען את רשימת הקבוצות...</p>
+  </div>
+
   <div id="step-groups" class="hidden">
-    <p class="hint">מחובר. בחר את הקבוצות שמהן להוציא תמונות:</p>
+    <p class="hint">בחר את הקבוצות שמהן להוציא תמונות:</p>
+    <div class="search-row">
+      <input type="text" id="searchInput" placeholder="חיפוש קבוצה לפי שם..." />
+    </div>
     <div id="groups"></div>
+    <button id="moreBtn" class="secondary hidden">הבא</button>
     <button id="syncBtn">העלה לדרייב</button>
   </div>
 
