@@ -1,0 +1,19 @@
+{
+  "name": "whatsapp-drive-sync",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Capture photos sent to a WhatsApp group and sync them on demand into dated Google Drive folders.",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "@hapi/boom": "^10.0.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "googleapis": "^144.0.0",
+    "pino": "^9.4.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

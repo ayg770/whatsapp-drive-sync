@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>סנכרון תמונות וואטסאפ לדרייב</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+      max-width: 640px;
+      margin: 40px auto;
+      padding: 0 16px;
+      color: #1a1a1a;
+      background: #fafafa;
+    }
+    h1 { font-size: 1.4rem; }
+    .group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      background: white;
+    }
+    .group .name { flex: 1; font-weight: 500; }
+    .group .count {
+      font-size: 0.85rem;
+      color: #666;
+      background: #f0f0f0;
+      padding: 2px 8px;
+      border-radius: 12px;
+    }
+    .actions { display: flex; gap: 10px; margin: 16px 0; flex-wrap: wrap; }
+    button {
+      font-size: 1rem;
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+    }
+    #syncBtn { background: #2563eb; color: white; }
+    #refreshBtn, #reselectBtn { background: #e5e7eb; color: #1a1a1a; }
+    #status { margin-top: 16px; padding: 12px; border-radius: 8px; background: white; border: 1px solid #ddd; white-space: pre-wrap; }
+    #status.empty { display: none; }
+    a { color: #2563eb; }
+  </style>
+</head>
+<body>
+  <h1>סנכרון תמונות מוואטסאפ לדרייב</h1>
+  <p>בחר את הקבוצות שמהן להוציא תמונות, ואז לחץ "סנכרן עכשיו".</p>
+
+  <div class="actions">
+    <button id="refreshBtn">רענן רשימת קבוצות</button>
+    <button id="reselectBtn">בחר מהרשימה האחרונה</button>
+  </div>
+
+  <div id="groups"></div>
+
+  <div class="actions">
+    <button id="syncBtn">סנכרן עכשיו</button>
+  </div>
+
+  <div id="status" class="empty"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
