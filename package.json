@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Lets a visitor link their own WhatsApp, pick groups, and upload recent group photos into a shared Google Drive folder, dated by day.",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node src/index.js"
   },

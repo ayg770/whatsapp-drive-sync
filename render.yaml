@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: whatsapp-drive-sync
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: GOOGLE_SERVICE_ACCOUNT_KEY_JSON
+        sync: false
+      - key: GOOGLE_DRIVE_PARENT_FOLDER_ID
+        sync: false
