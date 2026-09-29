@@ -215,14 +215,21 @@ function showSummary(summary) {
   showGroupPickers();
 }
 
-function disconnect() {
+disconnectBtn.addEventListener('click', async () => {
   if (!sessionId) return;
-  navigator.sendBeacon(`/api/session/${sessionId}/close`);
-}
-
-disconnectBtn.addEventListener('click', () => {
-  disconnect();
+  const idToClose = sessionId;
   sessionId = null;
+  disconnectBtn.disabled = true;
+  setStatus('מתנתק...');
+  try {
+    // Wait for the server to actually confirm the WhatsApp logout completed,
+    // rather than fire-and-forget — otherwise the phone can keep showing the
+    // device as linked even though the page has moved on.
+    await fetch(`/api/session/${idToClose}/close`, { method: 'POST' });
+  } catch {
+    // best-effort — the server-side idle timeout will clean it up eventually
+  }
+  disconnectBtn.disabled = false;
   setStatus('');
   showStep('choose');
 });

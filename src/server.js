@@ -62,15 +62,14 @@ export function startServer(port) {
     }
   });
 
-  app.delete('/api/session/:id', (req, res) => {
-    closeSession(req.params.id, { logout: true });
+  app.delete('/api/session/:id', async (req, res) => {
+    await closeSession(req.params.id, { logout: true });
     res.json({ ok: true });
   });
 
-  // POST alias of the above: navigator.sendBeacon (used to disconnect when
-  // the visitor closes the tab) can only send POST, not DELETE.
-  app.post('/api/session/:id/close', (req, res) => {
-    closeSession(req.params.id, { logout: true });
+  // POST alias of the above, for callers that can't send DELETE.
+  app.post('/api/session/:id/close', async (req, res) => {
+    await closeSession(req.params.id, { logout: true });
     res.json({ ok: true });
   });
 

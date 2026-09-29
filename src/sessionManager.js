@@ -130,7 +130,11 @@ async function connect(session) {
   if (session.phoneNumber && !sock.authState.creds.registered) {
     try {
       const rawCode = await sock.requestPairingCode(session.phoneNumber);
-      session.pairingCode = rawCode.match(/.{1,4}/g)?.join('-') || rawCode;
+      // Some Baileys versions already return the code with its own dash —
+      // strip any punctuation before reformatting, so it can't get doubled
+      // up into something that doesn't match what WhatsApp expects.
+      const cleanCode = rawCode.replace(/[^A-Za-z0-9]/g, '');
+      session.pairingCode = cleanCode.match(/.{1,4}/g)?.join('-') || cleanCode;
       session.status = 'waiting_pairing_code';
       scheduleExpiry(session, CONNECT_TIMEOUT_MS, 'no_scan');
     } catch (err) {
@@ -319,14 +323,24 @@ export async function syncSession(id, groupIds, lookbackDays) {
   return summary;
 }
 
-export function closeSession(id, { logout = false } = {}) {
+export async function closeSession(id, { logout = false } = {}) {
   const session = sessions.get(id);
   if (!session) return;
 
   clearTimeout(session.expireTimer);
 
+  // Actually wait for the logout to reach WhatsApp before tearing down the
+  // socket — ending the connection right away could cut it off mid-send, in
+  // which case the phone keeps showing the device as linked.
+  if (logout && session.sock) {
+    try {
+      await session.sock.logout();
+    } catch {
+      // already logged out / connection already gone — nothing more to do
+    }
+  }
+
   try {
-    if (logout && session.sock) session.sock.logout().catch(() => {});
     session.sock?.end();
   } catch {
     // socket may already be closed
