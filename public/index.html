@@ -115,21 +115,13 @@
       <option value="30">חודש אחרון</option>
     </select>
 
-    <div id="quickActions" class="hidden" style="margin-top:16px;">
-      <p class="hint">מוכן להעלות מאותן קבוצות כמו בפעם הקודמת?</p>
-      <button id="quickSyncBtn">העלה מהקבוצות של הפעם הקודמת</button>
-      <button id="reselectBtn" class="secondary">בחר קבוצות מחדש</button>
+    <p class="hint" style="margin-top:16px;">בחר את הקבוצות שמהן להוציא תמונות (הסימונים משקפים את הבחירה הקודמת שלך — אפשר פשוט לאשר, או לשנות):</p>
+    <div class="search-row">
+      <input type="text" id="searchInput" placeholder="חיפוש קבוצה לפי שם..." />
     </div>
-
-    <div id="manualPicker" style="margin-top:16px;">
-      <p class="hint">בחר את הקבוצות שמהן להוציא תמונות:</p>
-      <div class="search-row">
-        <input type="text" id="searchInput" placeholder="חיפוש קבוצה לפי שם..." />
-      </div>
-      <div id="groups"></div>
-      <button id="moreBtn" class="secondary hidden">הבא</button>
-      <button id="syncBtn">העלה לדרייב</button>
-    </div>
+    <div id="groups"></div>
+    <button id="moreBtn" class="secondary hidden">הבא</button>
+    <button id="syncBtn">העלה לדרייב</button>
 
     <button id="disconnectBtn" class="secondary">סיים והתנתק</button>
   </div>

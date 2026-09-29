@@ -16,10 +16,6 @@ const steps = {
 const qrEl = document.getElementById('qr');
 const pairingCodeEl = document.getElementById('pairingCode');
 const lookbackSelect = document.getElementById('lookbackSelect');
-const quickActionsEl = document.getElementById('quickActions');
-const manualPickerEl = document.getElementById('manualPicker');
-const quickSyncBtn = document.getElementById('quickSyncBtn');
-const reselectBtn = document.getElementById('reselectBtn');
 const groupsEl = document.getElementById('groups');
 const searchInput = document.getElementById('searchInput');
 const moreBtn = document.getElementById('moreBtn');
@@ -113,35 +109,16 @@ function renderGroups() {
   moreBtn.classList.toggle('hidden', filtered.length <= visibleCount);
 }
 
-// Shows the quick "same as last time" action when there's a usable saved
-// selection; otherwise goes straight to manual picking.
+// Always show the full list, with the previous selection already checked —
+// review and confirm, or change it, before uploading.
 function showGroupPickers() {
   const lastSelection = getLastSelection().filter((id) => allGroups.some((g) => g.id === id));
   selectedIds = new Set(lastSelection);
   searchQuery = '';
   visibleCount = PAGE_SIZE;
   searchInput.value = '';
-
-  if (lastSelection.length) {
-    quickActionsEl.classList.remove('hidden');
-    manualPickerEl.classList.add('hidden');
-  } else {
-    quickActionsEl.classList.add('hidden');
-    manualPickerEl.classList.remove('hidden');
-    renderGroups();
-  }
-}
-
-reselectBtn.addEventListener('click', () => {
-  quickActionsEl.classList.add('hidden');
-  manualPickerEl.classList.remove('hidden');
   renderGroups();
-});
-
-quickSyncBtn.addEventListener('click', () => {
-  const groupIds = getLastSelection().filter((id) => allGroups.some((g) => g.id === id));
-  performSync(groupIds);
-});
+}
 
 searchInput.addEventListener('input', () => {
   searchQuery = searchInput.value;
@@ -251,8 +228,6 @@ disconnectBtn.addEventListener('click', () => {
   showStep('choose');
 });
 
-window.addEventListener('pagehide', disconnect);
-
 async function performSync(groupIds) {
   if (!groupIds.length) {
     setStatus('בחר לפחות קבוצה אחת.');
@@ -260,7 +235,6 @@ async function performSync(groupIds) {
   }
   saveLastSelection(groupIds);
   clearTimeout(pollTimer);
-  quickSyncBtn.disabled = true;
   syncBtn.disabled = true;
   showStep('syncing');
   setStatus('');
@@ -282,7 +256,6 @@ async function performSync(groupIds) {
     showStep('error');
     errorText.textContent = err.message;
   } finally {
-    quickSyncBtn.disabled = false;
     syncBtn.disabled = false;
   }
 }

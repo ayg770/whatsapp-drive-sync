@@ -14,7 +14,7 @@ import { uploadImages } from './sync.js';
 const logger = pino({ level: 'silent' });
 
 const CONNECT_TIMEOUT_MS = 5 * 60 * 1000; // give up if nobody scans the QR / enters the code in time
-const IDLE_TIMEOUT_MS = 60 * 60 * 1000; // stay linked across several syncs; close only after real inactivity
+const IDLE_TIMEOUT_MS = 20 * 60 * 1000; // stay linked across several syncs; close only after real inactivity
 const HISTORY_MAX_WAIT_MS = 2 * 60 * 1000; // like sitting in WhatsApp Web: wait for the full sync, capped
 const HISTORY_POLL_MS = 1000;
 const DEFAULT_LOOKBACK_DAYS = 21;
