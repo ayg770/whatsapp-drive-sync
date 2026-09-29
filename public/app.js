@@ -205,12 +205,10 @@ function showSummary(summary) {
   if (!summary || summary.uploaded === 0) {
     setStatus('אין תמונות חדשות להעלאה מהקבוצות שנבחרו. אפשר לנסות שוב בעוד כמה שניות אם ההיסטוריה עוד נטענת.');
   } else {
-    const bySenderText = Object.entries(summary.bySender)
-      .map(([name, count]) => `${name}: ${count}`)
+    const byGroupText = Object.entries(summary.byGroup)
+      .map(([name, count]) => `הועלו ${count} תמונות מקבוצת '${name}'`)
       .join('\n');
-    setStatus(
-      `הועלו ${summary.uploaded} תמונות לתיקייה "${summary.folderName}".\n\n${bySenderText}\n\n${summary.folderUrl}`
-    );
+    setStatus(`${byGroupText}\n\nתיקייה: "${summary.folderName}"\n${summary.folderUrl}`);
   }
   showStep('groups');
   showGroupPickers();

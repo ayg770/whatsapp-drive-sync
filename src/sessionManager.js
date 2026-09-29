@@ -41,6 +41,7 @@ function newSession(id, phoneNumber) {
     summary: null,
     messages: new Map(), // messageId -> raw WA message (candidate group images only)
     chatTimestamps: new Map(), // groupJid -> last activity, to sort groups like WhatsApp's own chat list
+    contactNames: new Map(), // participant JID -> real display name, when WhatsApp provides one
     historyComplete: false, // true once WhatsApp reports its history sync is done (isLatest)
     expireTimer: null,
   };
@@ -64,6 +65,29 @@ function trackChatTimestamps(session, chats) {
     if (chat.id?.endsWith('@g.us') && chat.conversationTimestamp) {
       session.chatTimestamps.set(chat.id, Number(chat.conversationTimestamp));
     }
+  }
+}
+
+// Chat-level "last activity" from the chats list can arrive late or not at
+// all, so also derive it directly from every group message we actually see
+// (any type, not just images) — this is exactly what WhatsApp's own chat
+// list is ordered by.
+function trackActivityFromMessages(session, messages) {
+  for (const msg of messages || []) {
+    const groupId = msg.key?.remoteJid;
+    if (!groupId?.endsWith('@g.us')) continue;
+    const timestamp = Number(msg.messageTimestamp) * 1000;
+    if (!timestamp) continue;
+    if (timestamp > (session.chatTimestamps.get(groupId) || 0)) {
+      session.chatTimestamps.set(groupId, timestamp);
+    }
+  }
+}
+
+function trackContactNames(session, contacts) {
+  for (const contact of contacts || []) {
+    const name = contact.name || contact.notify || contact.verifiedName;
+    if (contact.id && name) session.contactNames.set(contact.id, name);
   }
 }
 
@@ -166,8 +190,10 @@ async function connect(session) {
     }
   });
 
-  sock.ev.on('messaging-history.set', ({ chats, messages, isLatest }) => {
+  sock.ev.on('messaging-history.set', ({ chats, contacts, messages, isLatest }) => {
     trackChatTimestamps(session, chats);
+    trackActivityFromMessages(session, messages);
+    trackContactNames(session, contacts);
     for (const msg of messages || []) {
       if (isGroupImageMessage(msg)) session.messages.set(msg.key.id, msg);
     }
@@ -176,8 +202,11 @@ async function connect(session) {
 
   sock.ev.on('chats.upsert', (chats) => trackChatTimestamps(session, chats));
   sock.ev.on('chats.update', (chats) => trackChatTimestamps(session, chats));
+  sock.ev.on('contacts.upsert', (contacts) => trackContactNames(session, contacts));
+  sock.ev.on('contacts.update', (contacts) => trackContactNames(session, contacts));
 
   sock.ev.on('messages.upsert', ({ messages }) => {
+    trackActivityFromMessages(session, messages);
     for (const msg of messages || []) {
       if (isGroupImageMessage(msg)) session.messages.set(msg.key.id, msg);
     }
@@ -239,6 +268,9 @@ export async function syncSession(id, groupIds, lookbackDays) {
     const timestamp = Number(msg.messageTimestamp) * 1000 || Date.now();
     const groupId = msg.key.remoteJid;
     const imageMessage = extractImageMessage(msg.message);
+    const participant = msg.key.participant || msg.key.remoteJid;
+    const senderName =
+      session.contactNames.get(participant) || msg.pushName || participant?.split('@')[0] || 'unknown';
     try {
       const buffer = await downloadMediaMessage(
         msg,
@@ -250,7 +282,7 @@ export async function syncSession(id, groupIds, lookbackDays) {
         buffer,
         ext: imageMessage.mimetype?.includes('png') ? 'png' : 'jpg',
         mimeType: imageMessage.mimetype?.includes('png') ? 'image/png' : 'image/jpeg',
-        senderName: msg.pushName || msg.key.participant?.split('@')[0] || 'unknown',
+        senderName,
         timestamp,
         groupId,
       });

@@ -29,6 +29,7 @@ export async function uploadImages(items, groupNameById, selectedGroupIds) {
     return {
       uploaded: 0,
       bySender: {},
+      byGroup: {},
       folderName: null,
       folderUrl: null,
       groups: selectedGroupIds.map((id) => groupNameById[id] || id),
@@ -39,6 +40,7 @@ export async function uploadImages(items, groupNameById, selectedGroupIds) {
   const folderId = await getOrCreateDateFolder(folderName, parentId);
 
   const bySender = {};
+  const byGroup = {};
   const usedNames = new Set();
 
   for (const item of items) {
@@ -53,11 +55,15 @@ export async function uploadImages(items, groupNameById, selectedGroupIds) {
 
     await uploadBuffer(item.buffer, fileName, item.mimeType, folderId);
     bySender[senderName] = (bySender[senderName] || 0) + 1;
+
+    const groupName = groupNameById[item.groupId] || item.groupId;
+    byGroup[groupName] = (byGroup[groupName] || 0) + 1;
   }
 
   return {
     uploaded: items.length,
     bySender,
+    byGroup,
     folderName,
     folderUrl: folderUrl(folderId),
     groups: selectedGroupIds.map((id) => groupNameById[id] || id),
