@@ -24,6 +24,7 @@ const disconnectBtn = document.getElementById('disconnectBtn');
 const retryBtn = document.getElementById('retryBtn');
 const errorText = document.getElementById('errorText');
 const statusEl = document.getElementById('status');
+const syncingHint = document.getElementById('syncingHint');
 const chooseQrBtn = document.getElementById('chooseQr');
 const choosePhoneBtn = document.getElementById('choosePhone');
 const backFromPhoneBtn = document.getElementById('backFromPhone');
@@ -226,6 +227,20 @@ disconnectBtn.addEventListener('click', () => {
   showStep('choose');
 });
 
+async function pollSyncProgress() {
+  try {
+    const res = await fetch(`/api/session/${sessionId}`);
+    if (res.ok) {
+      const state = await res.json();
+      if (state.progress?.total) {
+        syncingHint.textContent = `מוריד ומעלה תמונה ${state.progress.current} מתוך ${state.progress.total}...`;
+      }
+    }
+  } catch {
+    // best-effort only; the main sync request is the source of truth
+  }
+}
+
 async function performSync(groupIds) {
   if (!groupIds.length) {
     setStatus('בחר לפחות קבוצה אחת.');
@@ -235,7 +250,10 @@ async function performSync(groupIds) {
   clearTimeout(pollTimer);
   syncBtn.disabled = true;
   showStep('syncing');
+  syncingHint.textContent = 'מעלה תמונות, אנא המתן...';
   setStatus('');
+
+  const progressTimer = setInterval(pollSyncProgress, 1500);
 
   try {
     const res = await fetch(`/api/session/${sessionId}/sync`, {
@@ -254,6 +272,7 @@ async function performSync(groupIds) {
     showStep('error');
     errorText.textContent = err.message;
   } finally {
+    clearInterval(progressTimer);
     syncBtn.disabled = false;
   }
 }

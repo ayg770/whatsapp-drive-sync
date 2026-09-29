@@ -39,6 +39,7 @@ function newSession(id, phoneNumber) {
     groups: null,
     error: null,
     summary: null,
+    progress: null, // { current, total } while syncing, so the page can show live progress
     messages: new Map(), // messageId -> raw WA message (candidate group images only)
     chatTimestamps: new Map(), // groupJid -> last activity, to sort groups like WhatsApp's own chat list
     contactNames: new Map(), // participant JID -> real display name, when WhatsApp provides one
@@ -223,6 +224,7 @@ export function getPublicState(id) {
     groups: session.groups,
     error: session.error,
     summary: session.summary,
+    progress: session.progress,
   };
 }
 
@@ -262,6 +264,7 @@ export async function syncSession(id, groupIds, lookbackDays) {
   });
 
   console.log(`Sync: downloading ${toDownload.length} photo(s) for session ${id}...`);
+  session.progress = { current: 0, total: toDownload.length };
 
   const items = [];
   for (const [index, msg] of toDownload.entries()) {
@@ -290,6 +293,7 @@ export async function syncSession(id, groupIds, lookbackDays) {
     } catch (err) {
       console.error(`Sync: failed to download photo ${index + 1}/${toDownload.length}:`, err.message);
     }
+    session.progress.current = index + 1;
   }
 
   console.log(`Sync: uploading ${items.length} photo(s) to Drive...`);
@@ -309,6 +313,7 @@ export async function syncSession(id, groupIds, lookbackDays) {
   // (which sends a beacon to /close) or after real inactivity.
   session.status = 'connected';
   session.summary = summary;
+  session.progress = null;
   scheduleExpiry(session, IDLE_TIMEOUT_MS, 'idle');
 
   return summary;
