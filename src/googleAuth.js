@@ -2,10 +2,18 @@ import { google } from 'googleapis';
 
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
 
+function trimmedEnv(name) {
+  const value = process.env[name];
+  // Copy-pasting from Google Cloud Console (or a dashboard's own "copy"
+  // button) can silently include a trailing newline/space, which then makes
+  // the client_id/secret not match what Google has on file.
+  return value ? value.trim() : value;
+}
+
 function oauthClient() {
-  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
-  const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI;
+  const clientId = trimmedEnv('GOOGLE_OAUTH_CLIENT_ID');
+  const clientSecret = trimmedEnv('GOOGLE_OAUTH_CLIENT_SECRET');
+  const redirectUri = trimmedEnv('GOOGLE_OAUTH_REDIRECT_URI');
   if (!clientId || !clientSecret || !redirectUri) return null;
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
@@ -36,7 +44,7 @@ export async function exchangeCodeForTokens(code) {
 
 // Used at request time once GOOGLE_OAUTH_REFRESH_TOKEN is saved as an env var.
 export function getAuthorizedOAuthClient() {
-  const refreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
+  const refreshToken = trimmedEnv('GOOGLE_OAUTH_REFRESH_TOKEN');
   const client = oauthClient();
   if (!client || !refreshToken) return null;
   client.setCredentials({ refresh_token: refreshToken });
