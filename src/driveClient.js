@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { Readable } from 'stream';
 import { google } from 'googleapis';
+import { getAuthorizedOAuthClient } from './googleAuth.js';
 
 let driveClient = null;
 
@@ -8,12 +9,18 @@ function getDrive() {
   if (driveClient) return driveClient;
 
   const scopes = ['https://www.googleapis.com/auth/drive'];
+  const oauthClient = getAuthorizedOAuthClient();
   const base64Json = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_BASE64;
   const inlineJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON;
   const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE;
 
   let auth;
-  if (base64Json) {
+  if (oauthClient) {
+    // Preferred: acts as the real Google account that owns the Drive folder,
+    // so uploaded files use that account's own storage quota. A Service
+    // Account (below) has none of its own on a regular (non-Workspace) Drive.
+    auth = oauthClient;
+  } else if (base64Json) {
     // Most robust for pasting into a hosting dashboard: a single unbroken
     // line, immune to a text editor accidentally inserting a real line break
     // in the middle of the long private_key field.
@@ -39,7 +46,7 @@ function getDrive() {
     auth = new google.auth.GoogleAuth({ keyFile, scopes });
   } else {
     throw new Error(
-      'No Google service account credentials found. Set GOOGLE_SERVICE_ACCOUNT_KEY_BASE64 (recommended), GOOGLE_SERVICE_ACCOUNT_KEY_JSON, or GOOGLE_SERVICE_ACCOUNT_KEY_FILE in .env.'
+      'No Google Drive credentials found. Recommended: complete the one-time /admin/google-auth/start flow. Alternatively set GOOGLE_SERVICE_ACCOUNT_KEY_BASE64, GOOGLE_SERVICE_ACCOUNT_KEY_JSON, or GOOGLE_SERVICE_ACCOUNT_KEY_FILE (only works with a Shared Drive).'
     );
   }
 

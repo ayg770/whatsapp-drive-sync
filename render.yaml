@@ -8,7 +8,13 @@ services:
     envVars:
       - key: PORT
         value: 3000
-      - key: GOOGLE_SERVICE_ACCOUNT_KEY_BASE64
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_OAUTH_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_OAUTH_REFRESH_TOKEN
         sync: false
       - key: GOOGLE_DRIVE_PARENT_FOLDER_ID
         sync: false
