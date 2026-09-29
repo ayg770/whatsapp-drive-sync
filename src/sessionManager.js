@@ -5,6 +5,7 @@ import qrcode from 'qrcode';
 import makeWASocket, {
   useMultiFileAuthState,
   downloadMediaMessage,
+  fetchLatestBaileysVersion,
   DisconnectReason,
 } from '@whiskeysockets/baileys';
 import { sessionAuthDir, removeSessionAuthDir, getGroupLastSynced, setGroupLastSynced } from './store.js';
@@ -117,11 +118,23 @@ async function connect(session) {
   const authDir = sessionAuthDir(session.id);
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
 
+  // Pin to the actual current WhatsApp Web protocol version rather than
+  // whatever shipped with this Baileys install — WhatsApp bumping that
+  // version server-side is a common cause of "scans fine, then silently
+  // fails to link" once the bundled default has drifted out of date.
+  let version;
+  try {
+    ({ version } = await fetchLatestBaileysVersion());
+  } catch (err) {
+    console.error('Could not fetch latest WhatsApp Web version, using bundled default:', err.message);
+  }
+
   const sock = makeWASocket({
     auth: state,
     logger,
     printQRInTerminal: false,
     syncFullHistory: true,
+    ...(version ? { version } : {}),
   });
   session.sock = sock;
 
@@ -147,6 +160,10 @@ async function connect(session) {
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
+    if (connection) {
+      console.log(`Session ${session.id}: connection.update -> ${connection}`);
+    }
+
     if (qr && !session.phoneNumber) {
       session.status = 'waiting_qr';
       session.qr = await qrcode.toDataURL(qr);
@@ -154,6 +171,7 @@ async function connect(session) {
     }
 
     if (connection === 'open') {
+      console.log(`Session ${session.id}: connected as ${sock.authState.creds.me?.id}`);
       session.status = 'loading_groups';
       session.qr = null;
       session.pairingCode = null;
@@ -181,7 +199,11 @@ async function connect(session) {
     }
 
     if (connection === 'close') {
-      const statusCode = new Boom(lastDisconnect?.error)?.output?.statusCode;
+      const boom = new Boom(lastDisconnect?.error);
+      const statusCode = boom?.output?.statusCode;
+      console.log(
+        `Session ${session.id}: connection closed. statusCode=${statusCode} reason=${DisconnectReason[statusCode] || 'unknown'} message=${boom?.message}`
+      );
       const loggedOut = statusCode === DisconnectReason.loggedOut;
       const shouldReconnect = !loggedOut && session.status !== 'closed';
       if (shouldReconnect) {
