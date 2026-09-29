@@ -17,6 +17,7 @@ const CONNECT_TIMEOUT_MS = 5 * 60 * 1000; // give up if nobody scans the QR / en
 const IDLE_TIMEOUT_MS = 60 * 60 * 1000; // stay linked across several syncs; close only after real inactivity
 const HISTORY_MAX_WAIT_MS = 2 * 60 * 1000; // like sitting in WhatsApp Web: wait for the full sync, capped
 const HISTORY_POLL_MS = 1000;
+const MAX_FIRST_SYNC_LOOKBACK_MS = 21 * 24 * 60 * 60 * 1000; // 3 weeks
 
 const sessions = new Map();
 
@@ -212,12 +213,24 @@ export async function syncSession(id, groupIds) {
     groupIds.includes(msg.key.remoteJid)
   );
 
-  const items = [];
-  for (const msg of candidates) {
+  // On a group's very first sync there's no "last synced" time yet, and full
+  // history sync can hand us months of old photos — cap how far back the
+  // first sync reaches so it doesn't try to upload a group's entire history.
+  const oldestAllowed = Date.now() - MAX_FIRST_SYNC_LOOKBACK_MS;
+
+  const toDownload = candidates.filter((msg) => {
     const timestamp = Number(msg.messageTimestamp) * 1000 || Date.now();
     const groupId = msg.key.remoteJid;
-    if (timestamp <= getGroupLastSynced(groupId)) continue;
+    const cutoff = Math.max(getGroupLastSynced(groupId), oldestAllowed);
+    return timestamp > cutoff;
+  });
 
+  console.log(`Sync: downloading ${toDownload.length} photo(s) for session ${id}...`);
+
+  const items = [];
+  for (const [index, msg] of toDownload.entries()) {
+    const timestamp = Number(msg.messageTimestamp) * 1000 || Date.now();
+    const groupId = msg.key.remoteJid;
     const imageMessage = extractImageMessage(msg.message);
     try {
       const buffer = await downloadMediaMessage(
@@ -234,12 +247,15 @@ export async function syncSession(id, groupIds) {
         timestamp,
         groupId,
       });
+      console.log(`Sync: downloaded photo ${index + 1}/${toDownload.length}`);
     } catch (err) {
-      console.error('Failed to download a photo during sync:', err.message);
+      console.error(`Sync: failed to download photo ${index + 1}/${toDownload.length}:`, err.message);
     }
   }
 
+  console.log(`Sync: uploading ${items.length} photo(s) to Drive...`);
   const summary = await uploadImages(items, groupNameById, groupIds);
+  console.log(`Sync: done, uploaded ${summary.uploaded}.`);
 
   const latestByGroup = {};
   for (const item of items) {
