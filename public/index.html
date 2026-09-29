@@ -107,13 +107,30 @@
   </div>
 
   <div id="step-groups" class="hidden">
-    <p class="hint">בחר את הקבוצות שמהן להוציא תמונות:</p>
-    <div class="search-row">
-      <input type="text" id="searchInput" placeholder="חיפוש קבוצה לפי שם..." />
+    <p class="hint">כמה אחורה להביא תמונות:</p>
+    <select id="lookbackSelect">
+      <option value="3">3 ימים אחרונים</option>
+      <option value="7" selected>שבוע אחרון</option>
+      <option value="14">שבועיים אחרונים</option>
+      <option value="30">חודש אחרון</option>
+    </select>
+
+    <div id="quickActions" class="hidden" style="margin-top:16px;">
+      <p class="hint">מוכן להעלות מאותן קבוצות כמו בפעם הקודמת?</p>
+      <button id="quickSyncBtn">העלה מהקבוצות של הפעם הקודמת</button>
+      <button id="reselectBtn" class="secondary">בחר קבוצות מחדש</button>
     </div>
-    <div id="groups"></div>
-    <button id="moreBtn" class="secondary hidden">הבא</button>
-    <button id="syncBtn">העלה לדרייב</button>
+
+    <div id="manualPicker" style="margin-top:16px;">
+      <p class="hint">בחר את הקבוצות שמהן להוציא תמונות:</p>
+      <div class="search-row">
+        <input type="text" id="searchInput" placeholder="חיפוש קבוצה לפי שם..." />
+      </div>
+      <div id="groups"></div>
+      <button id="moreBtn" class="secondary hidden">הבא</button>
+      <button id="syncBtn">העלה לדרייב</button>
+    </div>
+
     <button id="disconnectBtn" class="secondary">סיים והתנתק</button>
   </div>
 

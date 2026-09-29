@@ -55,7 +55,7 @@ export function startServer(port) {
 
   app.post('/api/session/:id/sync', async (req, res) => {
     try {
-      const summary = await syncSession(req.params.id, req.body.groupIds);
+      const summary = await syncSession(req.params.id, req.body.groupIds, req.body.lookbackDays);
       res.json(summary);
     } catch (err) {
       res.status(400).json({ error: err.message });

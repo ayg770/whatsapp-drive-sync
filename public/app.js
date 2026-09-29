@@ -1,4 +1,5 @@
 const LAST_SELECTION_KEY = 'wa-drive-sync:last-selection';
+const LOOKBACK_KEY = 'wa-drive-sync:lookback-days';
 const PAGE_SIZE = 20;
 
 const steps = {
@@ -14,6 +15,11 @@ const steps = {
 };
 const qrEl = document.getElementById('qr');
 const pairingCodeEl = document.getElementById('pairingCode');
+const lookbackSelect = document.getElementById('lookbackSelect');
+const quickActionsEl = document.getElementById('quickActions');
+const manualPickerEl = document.getElementById('manualPicker');
+const quickSyncBtn = document.getElementById('quickSyncBtn');
+const reselectBtn = document.getElementById('reselectBtn');
 const groupsEl = document.getElementById('groups');
 const searchInput = document.getElementById('searchInput');
 const moreBtn = document.getElementById('moreBtn');
@@ -62,6 +68,20 @@ function saveLastSelection(ids) {
   }
 }
 
+try {
+  const savedLookback = localStorage.getItem(LOOKBACK_KEY);
+  if (savedLookback) lookbackSelect.value = savedLookback;
+} catch {
+  // ignore
+}
+lookbackSelect.addEventListener('change', () => {
+  try {
+    localStorage.setItem(LOOKBACK_KEY, lookbackSelect.value);
+  } catch {
+    // ignore
+  }
+});
+
 function renderGroups() {
   const filtered = searchQuery
     ? allGroups.filter((g) => g.name.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -92,6 +112,36 @@ function renderGroups() {
 
   moreBtn.classList.toggle('hidden', filtered.length <= visibleCount);
 }
+
+// Shows the quick "same as last time" action when there's a usable saved
+// selection; otherwise goes straight to manual picking.
+function showGroupPickers() {
+  const lastSelection = getLastSelection().filter((id) => allGroups.some((g) => g.id === id));
+  selectedIds = new Set(lastSelection);
+  searchQuery = '';
+  visibleCount = PAGE_SIZE;
+  searchInput.value = '';
+
+  if (lastSelection.length) {
+    quickActionsEl.classList.remove('hidden');
+    manualPickerEl.classList.add('hidden');
+  } else {
+    quickActionsEl.classList.add('hidden');
+    manualPickerEl.classList.remove('hidden');
+    renderGroups();
+  }
+}
+
+reselectBtn.addEventListener('click', () => {
+  quickActionsEl.classList.add('hidden');
+  manualPickerEl.classList.remove('hidden');
+  renderGroups();
+});
+
+quickSyncBtn.addEventListener('click', () => {
+  const groupIds = getLastSelection().filter((id) => allGroups.some((g) => g.id === id));
+  performSync(groupIds);
+});
 
 searchInput.addEventListener('input', () => {
   searchQuery = searchInput.value;
@@ -160,12 +210,8 @@ async function poll() {
     // instead of re-rendering (and wiping the user's in-progress selection)
     // every couple of seconds.
     allGroups = state.groups;
-    selectedIds = new Set(getLastSelection().filter((id) => allGroups.some((g) => g.id === id)));
-    searchQuery = '';
-    visibleCount = PAGE_SIZE;
-    searchInput.value = '';
     showStep('groups');
-    renderGroups();
+    showGroupPickers();
     return; // stop polling
   } else if (state.status === 'syncing') {
     showStep('syncing');
@@ -190,6 +236,7 @@ function showSummary(summary) {
     );
   }
   showStep('groups');
+  showGroupPickers();
 }
 
 function disconnect() {
@@ -206,14 +253,14 @@ disconnectBtn.addEventListener('click', () => {
 
 window.addEventListener('pagehide', disconnect);
 
-syncBtn.addEventListener('click', async () => {
-  const groupIds = Array.from(selectedIds);
+async function performSync(groupIds) {
   if (!groupIds.length) {
     setStatus('בחר לפחות קבוצה אחת.');
     return;
   }
   saveLastSelection(groupIds);
   clearTimeout(pollTimer);
+  quickSyncBtn.disabled = true;
   syncBtn.disabled = true;
   showStep('syncing');
   setStatus('');
@@ -222,7 +269,7 @@ syncBtn.addEventListener('click', async () => {
     const res = await fetch(`/api/session/${sessionId}/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ groupIds }),
+      body: JSON.stringify({ groupIds, lookbackDays: lookbackSelect.value }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -235,8 +282,11 @@ syncBtn.addEventListener('click', async () => {
     showStep('error');
     errorText.textContent = err.message;
   } finally {
+    quickSyncBtn.disabled = false;
     syncBtn.disabled = false;
   }
-});
+}
+
+syncBtn.addEventListener('click', () => performSync(Array.from(selectedIds)));
 
 retryBtn.addEventListener('click', () => showStep('choose'));

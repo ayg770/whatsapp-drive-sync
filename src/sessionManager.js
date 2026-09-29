@@ -17,7 +17,13 @@ const CONNECT_TIMEOUT_MS = 5 * 60 * 1000; // give up if nobody scans the QR / en
 const IDLE_TIMEOUT_MS = 60 * 60 * 1000; // stay linked across several syncs; close only after real inactivity
 const HISTORY_MAX_WAIT_MS = 2 * 60 * 1000; // like sitting in WhatsApp Web: wait for the full sync, capped
 const HISTORY_POLL_MS = 1000;
-const MAX_FIRST_SYNC_LOOKBACK_MS = 21 * 24 * 60 * 60 * 1000; // 3 weeks
+const DEFAULT_LOOKBACK_DAYS = 21;
+const MAX_LOOKBACK_DAYS = 60; // sanity cap regardless of what the visitor picks
+
+function lookbackDaysToMs(lookbackDays) {
+  const days = Math.min(Math.max(Number(lookbackDays) || DEFAULT_LOOKBACK_DAYS, 1), MAX_LOOKBACK_DAYS);
+  return days * 24 * 60 * 60 * 1000;
+}
 
 const sessions = new Map();
 
@@ -197,7 +203,7 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function syncSession(id, groupIds) {
+export async function syncSession(id, groupIds, lookbackDays) {
   const session = sessions.get(id);
   if (!session) throw new Error('Session not found');
   if (session.status !== 'connected') throw new Error('WhatsApp is not connected yet');
@@ -214,9 +220,10 @@ export async function syncSession(id, groupIds) {
   );
 
   // On a group's very first sync there's no "last synced" time yet, and full
-  // history sync can hand us months of old photos — cap how far back the
-  // first sync reaches so it doesn't try to upload a group's entire history.
-  const oldestAllowed = Date.now() - MAX_FIRST_SYNC_LOOKBACK_MS;
+  // history sync can hand us months of old photos — the visitor picks how
+  // far back to reach (default/cap keep a single huge first sync from
+  // trying to upload a group's entire history).
+  const oldestAllowed = Date.now() - lookbackDaysToMs(lookbackDays);
 
   const toDownload = candidates.filter((msg) => {
     const timestamp = Number(msg.messageTimestamp) * 1000 || Date.now();
