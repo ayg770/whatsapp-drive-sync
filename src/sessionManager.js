@@ -65,7 +65,7 @@ function waitForHistorySync(session, maxMs) {
 function trackChatTimestamps(session, chats) {
   for (const chat of chats || []) {
     if (chat.id?.endsWith('@g.us') && chat.conversationTimestamp) {
-      session.chatTimestamps.set(chat.id, Number(chat.conversationTimestamp));
+      session.chatTimestamps.set(chat.id, Number(chat.conversationTimestamp) * 1000);
     }
   }
 }
