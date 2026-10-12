@@ -1,11 +1,13 @@
 import fs from 'fs';
 import { Readable } from 'stream';
 import { google } from 'googleapis';
+import { getReservedImageId, reserveImageId } from './store.js';
 import { getAuthorizedOAuthClient } from './googleAuth.js';
 
 let driveClient = null;
+const dateFolders = new Map();
 
-function getDrive() {
+export function getDrive() {
   if (driveClient) return driveClient;
 
   const scopes = ['https://www.googleapis.com/auth/drive'];
@@ -56,52 +58,120 @@ function getDrive() {
 
 // Returns the id of an existing folder with this exact name under parentId,
 // or creates a new one if none exists yet (so re-syncing the same day reuses it).
-export async function getOrCreateDateFolder(folderName, parentId) {
+export function getOrCreateDateFolder(folderName, parentId) {
+  const key = JSON.stringify([parentId, folderName]);
+  if (!dateFolders.has(key)) {
+    dateFolders.set(
+      key,
+      findOrCreateDateFolder(folderName, parentId).catch((err) => {
+        dateFolders.delete(key);
+        throw err;
+      })
+    );
+  }
+  return dateFolders.get(key);
+}
+async function findOrCreateDateFolder(folderName, parentId) {
   const drive = getDrive();
 
   const escaped = folderName.replace(/'/g, "\\'");
   const query = `name = '${escaped}' and '${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
 
-  const existing = await drive.files.list({
-    q: query,
-    fields: 'files(id, name)',
-    spaces: 'drive',
-  });
+  const existing = await drive.files.list(
+    {
+      q: query,
+      fields: 'files(id, name)',
+      spaces: 'drive'
+    },
+    { timeout: 30000 }
+  );
 
   if (existing.data.files?.length) {
     return existing.data.files[0].id;
   }
 
-  const created = await drive.files.create({
-    requestBody: {
-      name: folderName,
-      mimeType: 'application/vnd.google-apps.folder',
-      parents: [parentId],
+  const created = await drive.files.create(
+    {
+      requestBody: {
+        name: folderName,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [parentId]
+      },
+      fields: 'id'
     },
-    fields: 'id',
-  });
+    { timeout: 30000, retry: false }
+  );
 
   return created.data.id;
 }
 
-export async function uploadBuffer(buffer, fileName, mimeType, parentId) {
-  const drive = getDrive();
-
-  const res = await drive.files.create({
-    requestBody: {
-      name: fileName,
-      parents: [parentId],
-    },
-    media: {
-      mimeType,
-      body: Readable.from(buffer),
-    },
-    fields: 'id, webViewLink',
-  });
-
+export async function uploadBuffer(
+  buffer,
+  fileName,
+  mimeType,
+  parentId,
+  imageKey,
+  id,
+  drive = getDrive()
+) {
+  let res;
+  try {
+    res = await drive.files.create(
+      {
+        requestBody: {
+          id,
+          name: fileName,
+          parents: [parentId],
+          appProperties: imageKey ? { imageKey } : undefined
+        },
+        media: {
+          mimeType,
+          body: Readable.from(buffer)
+        },
+        fields: 'id, webViewLink'
+      },
+      { timeout: 60000, retry: false }
+    );
+  } catch (err) {
+    if (!id || Number(err.response?.status ?? err.code) !== 409) throw err;
+    // Retrying the same preallocated ID cannot create a second image.
+    res = await drive.files.get(
+      { fileId: id, fields: 'id, appProperties, trashed' },
+      { timeout: 30000 }
+    );
+    if (res.data.trashed || res.data.appProperties?.imageKey !== imageKey)
+      throw new Error('Drive image ID conflict');
+  }
   return res.data;
 }
 
 export function folderUrl(folderId) {
   return `https://drive.google.com/drive/folders/${folderId}`;
+}
+
+// Stored with the image itself: survives loss of the local Render filesystem.
+export async function findUploadedImage(imageKey) {
+  const result = await getDrive().files.list(
+    {
+      q: `appProperties has { key='imageKey' and value='${imageKey}' } and trashed=false`,
+      fields: 'files(id)',
+      pageSize: 1,
+      spaces: 'drive'
+    },
+    { timeout: 30000 }
+  );
+  return result.data.files?.[0] || null;
+}
+
+export async function reserveDriveImageId(key) {
+  const saved = getReservedImageId(key);
+  if (saved) return saved;
+  const result = await getDrive().files.generateIds(
+    { count: 1, space: 'drive', type: 'files' },
+    { timeout: 30000 }
+  );
+  const id = result.data.ids?.[0];
+  if (!id) throw new Error('Drive did not allocate an image ID');
+  reserveImageId(key, id);
+  return id;
 }

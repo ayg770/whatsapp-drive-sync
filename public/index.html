@@ -62,6 +62,7 @@
       width: 100%;
       margin-top: 8px;
     }
+    select { width: 100%; font-size: 1rem; padding: 12px; }
     button:disabled { background: #9ca3af; }
     button.secondary { background: #e5e7eb; color: #1a1a1a; }
     #status { margin-top: 16px; padding: 12px; border-radius: 8px; background: white; border: 1px solid #ddd; white-space: pre-wrap; }
@@ -103,10 +104,11 @@
   </div>
 
   <div id="step-loading-groups" class="hidden">
-    <p class="hint">מחובר. טוען את כל ההיסטוריה מוואטסאפ (בדיוק כמו ב-WhatsApp Web) — זה יכול לקחת עד כמה דקות, אנא המתן...</p>
+    <p class="hint">מחובר. טוען את רשימת הקבוצות...</p>
   </div>
 
   <div id="step-groups" class="hidden">
+    <p class="hint" id="historyHint" aria-live="polite"></p>
     <p class="hint">כמה אחורה להביא תמונות:</p>
     <select id="lookbackSelect">
       <option value="1">יום אחרון</option>
@@ -136,7 +138,7 @@
     <button id="retryBtn" class="secondary">נסה שוב</button>
   </div>
 
-  <div id="status" class="empty"></div>
+  <div id="status" class="empty" role="status" aria-live="polite"></div>
 
   <script src="app.js"></script>
 </body>

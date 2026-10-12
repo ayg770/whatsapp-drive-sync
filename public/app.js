@@ -11,7 +11,7 @@ const steps = {
   loadingGroups: document.getElementById('step-loading-groups'),
   groups: document.getElementById('step-groups'),
   syncing: document.getElementById('step-syncing'),
-  error: document.getElementById('step-error'),
+  error: document.getElementById('step-error')
 };
 const qrEl = document.getElementById('qr');
 const pairingCodeEl = document.getElementById('pairingCode');
@@ -32,6 +32,11 @@ const submitPhoneBtn = document.getElementById('submitPhone');
 const phoneInput = document.getElementById('phoneInput');
 
 let sessionId = null;
+let accountKey = null;
+let activeJobId = null;
+let finishedJobId = null;
+let initializedAccount = null;
+let groupsSignature = null;
 let pollTimer = null;
 let allGroups = [];
 let selectedIds = new Set();
@@ -51,7 +56,7 @@ function setStatus(text) {
 
 function getLastSelection() {
   try {
-    return JSON.parse(localStorage.getItem(LAST_SELECTION_KEY)) || [];
+    return JSON.parse(localStorage.getItem(`${LAST_SELECTION_KEY}:${accountKey}`)) || [];
   } catch {
     return [];
   }
@@ -59,7 +64,7 @@ function getLastSelection() {
 
 function saveLastSelection(ids) {
   try {
-    localStorage.setItem(LAST_SELECTION_KEY, JSON.stringify(ids));
+    localStorage.setItem(`${LAST_SELECTION_KEY}:${accountKey}`, JSON.stringify(ids));
   } catch {
     // ignore storage failures (private browsing etc.)
   }
@@ -97,6 +102,7 @@ function renderGroups() {
     checkbox.addEventListener('change', () => {
       if (checkbox.checked) selectedIds.add(g.id);
       else selectedIds.delete(g.id);
+      saveLastSelection([...selectedIds]);
     });
 
     const name = document.createElement('span');
@@ -145,110 +151,125 @@ submitPhoneBtn.addEventListener('click', () => {
 });
 
 async function startSession(phoneNumber) {
+  clearTimeout(pollTimer);
   showStep('connecting');
   setStatus('');
-  const res = await fetch('/api/session', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phoneNumber }),
-  });
-  const data = await res.json();
-  sessionId = data.sessionId;
-  poll();
+  try {
+    const res = await fetch('/api/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneNumber })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'יצירת החיבור נכשלה.');
+    sessionId = data.sessionId;
+    accountKey = null;
+    initializedAccount = null;
+    activeJobId = null;
+    finishedJobId = null;
+    poll();
+  } catch {
+    showStep('error');
+    errorText.textContent = 'לא ניתן ליצור חיבור. נסה שוב.';
+  }
 }
 
 async function poll() {
   clearTimeout(pollTimer);
-  const res = await fetch(`/api/session/${sessionId}`);
-
-  if (!res.ok) {
-    showStep('error');
-    errorText.textContent = 'החיבור פג. נסה שוב.';
-    return;
+  if (!sessionId) return;
+  try {
+    const res = await fetch(`/api/session/${sessionId}`);
+    if (!res.ok) {
+      sessionId = null;
+      throw new Error('החיבור פג. התחבר שוב.');
+    }
+    const state = await res.json();
+    accountKey = state.accountKey;
+    if (state.error && !['connected', 'syncing'].includes(state.status)) {
+      showStep('error');
+      errorText.textContent = state.error;
+    } else if (state.status === 'waiting_qr' && state.qr) {
+      showStep('qr');
+      const image = document.createElement('img');
+      image.src = state.qr;
+      image.alt = 'QR';
+      qrEl.replaceChildren(image);
+    } else if (state.status === 'waiting_pairing_code') {
+      showStep('pairing');
+      pairingCodeEl.textContent = state.pairingCode;
+    } else if (state.status === 'loading_groups') showStep('loadingGroups');
+    else if (state.status === 'syncing') {
+      activeJobId = state.jobId;
+      showStep('syncing');
+      const p = state.progress;
+      if (p)
+        syncingHint.textContent = `נמצאו ${p.found} | הועלו ${p.uploaded} | כבר בדרייב ${p.skipped} | נכשלו ${p.failed} | נותרו ${p.remaining}`;
+    } else if (state.status === 'connected' && state.groups) {
+      if (state.error) setStatus(state.error);
+      const nextSignature = JSON.stringify(state.groups);
+      allGroups = state.groups;
+      if (initializedAccount !== accountKey) {
+        showGroupPickers();
+        initializedAccount = accountKey;
+      } else if (nextSignature !== groupsSignature) renderGroups();
+      groupsSignature = nextSignature;
+      showStep('groups');
+      const history = document.getElementById('historyHint');
+      history.textContent = `זמינות כעת ${state.availableImages} תמונות בהיסטוריה שהתקבלה. ${state.historyComplete ? 'WhatsApp דיווח על סיום העברת ההיסטוריה הזמינה.' : 'ההיסטוריה עדיין מתקבלת; אפשר להמתין או לסנכרן שוב בהמשך.'} אין הבטחה שכל התמונות בתקופה יתקבלו.`;
+      if (state.summary && state.jobId !== finishedJobId) {
+        finishedJobId = state.jobId;
+        showSummary(state.summary);
+      }
+      activeJobId = null;
+      syncBtn.disabled = false;
+    } else showStep('connecting');
+  } catch (err) {
+    if (!sessionId) {
+      showStep('error');
+      errorText.textContent = err.message;
+      return;
+    }
+    setStatus('הקשר לשרת הופרע. מנסה לבדוק שוב; אין צורך להתחיל העלאה נוספת.');
   }
-
-  const state = await res.json();
-
-  if (state.error) {
-    showStep('error');
-    errorText.textContent = state.error;
-    return;
-  }
-
-  if (state.status === 'waiting_qr' && state.qr) {
-    showStep('qr');
-    qrEl.innerHTML = `<img src="${state.qr}" alt="QR code" />`;
-  } else if (state.status === 'waiting_pairing_code' && state.pairingCode) {
-    showStep('pairing');
-    pairingCodeEl.textContent = state.pairingCode;
-  } else if (state.status === 'loading_groups') {
-    showStep('loadingGroups');
-  } else if (state.status === 'connected' && state.groups) {
-    // Groups only change once (right after connecting), so stop polling here
-    // instead of re-rendering (and wiping the user's in-progress selection)
-    // every couple of seconds.
-    allGroups = state.groups;
-    showStep('groups');
-    showGroupPickers();
-    return; // stop polling
-  } else if (state.status === 'syncing') {
-    showStep('syncing');
-  } else {
-    showStep('connecting');
-  }
-
   pollTimer = setTimeout(poll, 1500);
 }
 
 function showSummary(summary) {
-  // The link stays open after this — the visitor can pick another set of
-  // groups and sync again without reconnecting, until they close the tab.
-  if (!summary || summary.uploaded === 0) {
-    setStatus('אין תמונות חדשות להעלאה מהקבוצות שנבחרו. אפשר לנסות שוב בעוד כמה שניות אם ההיסטוריה עוד נטענת.');
-  } else {
-    const byGroupText = Object.entries(summary.byGroup)
-      .map(([name, count]) => `הועלו ${count} תמונות מקבוצת '${name}'`)
-      .join('\n');
-    setStatus(`${byGroupText}\n\nתיקייה: "${summary.folderName}"\n${summary.folderUrl}`);
-  }
+  const counts = `נמצאו ${summary.found} | הועלו ${summary.uploaded} | כבר בדרייב ${summary.skipped} | נכשלו ${summary.failed} | נותרו ${summary.remaining}`;
+  const folder = summary.folderName ? `\nתיקייה: ${summary.folderName}\n${summary.folderUrl}` : '';
+  const retry = summary.failed ? '\nאפשר ללחוץ שוב על העלאה כדי לנסות את התמונות שנכשלו.' : '';
+  setStatus(counts + folder + retry);
   showStep('groups');
-  showGroupPickers();
 }
 
 disconnectBtn.addEventListener('click', async () => {
   if (!sessionId) return;
   const idToClose = sessionId;
   sessionId = null;
+  clearTimeout(pollTimer);
   disconnectBtn.disabled = true;
   setStatus('מתנתק...');
   try {
     // Wait for the server to actually confirm the WhatsApp logout completed,
     // rather than fire-and-forget — otherwise the phone can keep showing the
     // device as linked even though the page has moved on.
-    await fetch(`/api/session/${idToClose}/close`, { method: 'POST' });
+    const response = await fetch(`/api/session/${idToClose}/close`, {
+      method: 'POST'
+    });
+    const result = await response.json();
+    if (!response.ok || result.loggedOut === false) throw new Error('Logout not confirmed');
+    setStatus('החיבור נותק.');
   } catch {
-    // best-effort — the server-side idle timeout will clean it up eventually
+    setStatus(
+      'לא התקבל אישור ניתוק. בדוק בוואטסאפ ← מכשירים מקושרים והסר את החיבור אם הוא עדיין מופיע.'
+    );
   }
   disconnectBtn.disabled = false;
-  setStatus('');
   showStep('choose');
 });
 
-async function pollSyncProgress() {
-  try {
-    const res = await fetch(`/api/session/${sessionId}`);
-    if (res.ok) {
-      const state = await res.json();
-      if (state.progress?.total) {
-        syncingHint.textContent = `מוריד ומעלה תמונה ${state.progress.current} מתוך ${state.progress.total}...`;
-      }
-    }
-  } catch {
-    // best-effort only; the main sync request is the source of truth
-  }
-}
-
 async function performSync(groupIds) {
+  if (activeJobId) return;
   if (!groupIds.length) {
     setStatus('בחר לפחות קבוצה אחת.');
     return;
@@ -260,13 +281,11 @@ async function performSync(groupIds) {
   syncingHint.textContent = 'מעלה תמונות, אנא המתן...';
   setStatus('');
 
-  const progressTimer = setInterval(pollSyncProgress, 1500);
-
   try {
     const res = await fetch(`/api/session/${sessionId}/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ groupIds, lookbackDays: lookbackSelect.value }),
+      body: JSON.stringify({ groupIds, lookbackDays: lookbackSelect.value })
     });
     const data = await res.json();
     if (!res.ok) {
@@ -274,16 +293,32 @@ async function performSync(groupIds) {
       errorText.textContent = data.error;
       return;
     }
-    showSummary(data);
+    activeJobId = data.jobId;
+    poll();
   } catch (err) {
-    showStep('error');
-    errorText.textContent = err.message;
+    // The POST may have succeeded despite a lost response: poll before retrying.
+    setStatus('בודק את מצב ההעלאה לאחר הפרעה בחיבור...');
+    poll();
   } finally {
-    clearInterval(progressTimer);
-    syncBtn.disabled = false;
+    if (!activeJobId) syncBtn.disabled = false;
   }
 }
 
 syncBtn.addEventListener('click', () => performSync(Array.from(selectedIds)));
 
-retryBtn.addEventListener('click', () => showStep('choose'));
+retryBtn.addEventListener('click', async () => {
+  if (sessionId) {
+    try {
+      const state = await (await fetch(`/api/session/${sessionId}`)).json();
+      if (['connected', 'syncing'].includes(state.status)) {
+        poll();
+        return;
+      }
+      await fetch(`/api/session/${sessionId}/close`, { method: 'POST' });
+    } catch {}
+  }
+  sessionId = null;
+  clearTimeout(pollTimer);
+  showStep('choose');
+});
+showStep('choose');

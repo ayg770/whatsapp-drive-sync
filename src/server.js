@@ -1,79 +1,116 @@
-import path from 'path';
+import path from 'node:path';
+import crypto from 'node:crypto';
 import express from 'express';
-import { createSession, getPublicState, syncSession, closeSession } from './sessionManager.js';
-import { getAuthUrl, exchangeCodeForTokens } from './googleAuth.js';
+import * as sessions from './sessionManager.js';
+import { getAuthUrl, exchangeCodeForTokens, saveOAuthRefreshToken } from './googleAuth.js';
+import { accessMiddleware, readAccessUsers } from './access.js';
 
-export function startServer(port) {
+export function createApp({ manager = sessions, users = readAccessUsers() } = {}) {
   const app = express();
-  app.use(express.json());
+  const owners = new Map();
+  const oauthStates = new Map();
+  app.disable('x-powered-by');
+  app.get('/healthz', (req, res) => res.json({ ok: true }));
+  app.use(accessMiddleware(users));
+  app.use(express.json({ limit: '16kb' }));
   app.use(express.static(path.resolve('public')));
-
-  // One-time setup: visit this while signed in as the school's Google
-  // account to let this app create files under that account's own Drive
-  // storage (a Service Account has no storage quota of its own).
+  app.use('/admin', (req, res, next) =>
+    req.visitor.admin ? next() : res.status(403).send('Administrator access required')
+  );
   app.get('/admin/google-auth/start', (req, res) => {
     try {
-      res.redirect(getAuthUrl());
-    } catch (err) {
-      res.status(500).send(err.message);
+      for (const [state, entry] of oauthStates)
+        if (entry.expires < Date.now()) oauthStates.delete(state);
+      const state = crypto.randomBytes(32).toString('hex');
+      oauthStates.set(state, {
+        user: req.visitor.name,
+        expires: Date.now() + 10 * 60 * 1000
+      });
+      res.redirect(getAuthUrl(state));
+    } catch {
+      res.status(503).send('Google OAuth is not configured');
     }
   });
-
   app.get('/admin/google-auth/callback', async (req, res) => {
+    const entry = oauthStates.get(req.query.state);
+    oauthStates.delete(req.query.state);
+    if (
+      !entry ||
+      entry.user !== req.visitor.name ||
+      entry.expires < Date.now() ||
+      typeof req.query.code !== 'string'
+    )
+      return res.status(400).send('Invalid or expired authorization state');
     try {
       const tokens = await exchangeCodeForTokens(req.query.code);
-      if (!tokens.refresh_token) {
+      if (!tokens.refresh_token)
         return res
           .status(400)
-          .send(
-            'Google did not return a refresh token. This usually means access was already granted once before — remove this app\'s access at https://myaccount.google.com/permissions and try /admin/google-auth/start again.'
-          );
-      }
-      res.send(`
-        <!doctype html><html lang="he" dir="rtl"><meta charset="utf-8">
-        <body style="font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 16px;">
-          <h2>החיבור לדרייב הצליח</h2>
-          <p>העתק את הטקסט הבא, והוסף אותו כמשתנה סביבה חדש בשם <code>GOOGLE_OAUTH_REFRESH_TOKEN</code> ב-Render (או בקובץ ה-.env המקומי), ואז שמור ופרוס מחדש:</p>
-          <textarea readonly style="width:100%; height:100px; font-family:monospace; direction:ltr; text-align:left; padding:8px;">${tokens.refresh_token}</textarea>
-        </body></html>
-      `);
-    } catch (err) {
-      res.status(500).send('שגיאה: ' + err.message);
+          .send('No refresh token returned. Repeat authorization with consent.');
+      saveOAuthRefreshToken(tokens.refresh_token);
+      res
+        .type('html')
+        .send(
+          '<!doctype html><html lang="he" dir="rtl"><meta charset="utf-8"><p>החיבור לגוגל נשמר בשרת. אפשר לחזור לאתר.</p></html>'
+        );
+    } catch {
+      res.status(502).send('Google authorization failed');
     }
   });
-
   app.post('/api/session', (req, res) => {
-    const id = createSession(req.body?.phoneNumber);
+    // Expired sessions cannot keep consuming the per-user quota.
+    for (const id of owners.keys()) if (!manager.getPublicState(id)) owners.delete(id);
+    const existing = [...owners.values()].filter((name) => name === req.visitor.name).length;
+    if (existing >= 3)
+      return res.status(429).json({ error: 'סיים חיבור קיים לפני פתיחת חיבור נוסף.' });
+    const phone = req.body?.phoneNumber;
+    if (phone && (typeof phone !== 'string' || !/^\+?[0-9]{8,15}$/.test(phone)))
+      return res.status(400).json({ error: 'מספר הטלפון אינו תקין.' });
+    const id = manager.createSession(phone);
+    owners.set(id, req.visitor.name);
     res.json({ sessionId: id });
   });
-
-  app.get('/api/session/:id', (req, res) => {
-    const state = getPublicState(req.params.id);
-    if (!state) return res.status(404).json({ error: 'Session not found or expired' });
-    res.json(state);
+  app.use('/api/session/:id', (req, res, next) => {
+    if (owners.get(req.params.id) !== req.visitor.name || !manager.getPublicState(req.params.id))
+      return res.status(404).json({ error: 'Session not found or expired' });
+    next();
   });
-
-  app.post('/api/session/:id/sync', async (req, res) => {
+  app.get('/api/session/:id', (req, res) => res.json(manager.getPublicState(req.params.id)));
+  app.post('/api/session/:id/sync', (req, res) => {
     try {
-      const summary = await syncSession(req.params.id, req.body.groupIds, req.body.lookbackDays);
-      res.json(summary);
+      res
+        .status(202)
+        .json(manager.syncSession(req.params.id, req.body?.groupIds, req.body?.lookbackDays));
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
   });
-
-  app.delete('/api/session/:id', async (req, res) => {
-    await closeSession(req.params.id, { logout: true });
-    res.json({ ok: true });
-  });
-
-  // POST alias of the above, for callers that can't send DELETE.
-  app.post('/api/session/:id/close', async (req, res) => {
-    await closeSession(req.params.id, { logout: true });
-    res.json({ ok: true });
-  });
-
-  app.listen(port, () => {
-    console.log(`\nOpen http://localhost:${port} to link WhatsApp and sync.\n`);
-  });
+  const close = async (req, res) => {
+    try {
+      const result = await manager.closeSession(req.params.id, {
+        logout: true
+      });
+      owners.delete(req.params.id);
+      res.json({ ok: true, ...result });
+    } catch {
+      res.status(500).json({ error: 'ניתוק נכשל. נסה שוב.' });
+    }
+  };
+  app.delete('/api/session/:id', close);
+  app.post('/api/session/:id/close', close);
+  app.use((err, req, res, next) => res.status(400).json({ error: 'Invalid request' }));
+  return app;
+}
+export function startServer(port) {
+  const users = readAccessUsers();
+  if (
+    process.env.NODE_ENV === 'production' &&
+    (!process.env.DATA_DIR || !path.isAbsolute(process.env.DATA_DIR))
+  ) {
+    throw new Error('Production requires DATA_DIR pointing to a persistent disk');
+  }
+  const host = users || process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1';
+  return createApp({ users }).listen(port, host, () =>
+    console.log(`Server listening on port ${port}`)
+  );
 }

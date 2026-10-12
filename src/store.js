@@ -1,27 +1,30 @@
 import fs from 'fs';
 import path from 'path';
 
-const DATA_DIR = path.resolve('data');
+const DATA_DIR = path.resolve(process.env.DATA_DIR || 'data');
 const LAST_SYNCED_FILE = path.join(DATA_DIR, 'last-synced.json');
 const UPLOADED_FILE = path.join(DATA_DIR, 'uploaded-images.json');
 const SESSIONS_DIR = path.join(DATA_DIR, 'sessions');
 
 function ensureDataDir() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+  fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(SESSIONS_DIR, { recursive: true, mode: 0o700 });
 }
 
 function readJson(file, fallback) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return fallback;
+  } catch (err) {
+    if (err.code === 'ENOENT') return fallback;
+    throw new Error('Persistent sync state could not be read');
   }
 }
 
 function writeJson(file, value) {
   ensureDataDir();
-  fs.writeFileSync(file, JSON.stringify(value, null, 2));
+  const temporary = file + '.tmp';
+  fs.writeFileSync(temporary, JSON.stringify(value, null, 2), { mode: 0o600 });
+  fs.renameSync(temporary, file);
 }
 
 // Shared across everyone who ever syncs, keyed by WhatsApp group JID, so that
@@ -42,7 +45,7 @@ export function setGroupLastSynced(groupId, timestampMs) {
 export function sessionAuthDir(sessionId) {
   ensureDataDir();
   const dir = path.join(SESSIONS_DIR, sessionId);
-  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
 }
 
@@ -67,4 +70,14 @@ export function markImageUploaded(groupId, messageId) {
   if (!all[groupId]) all[groupId] = {};
   all[groupId][messageId] = true;
   writeJson(UPLOADED_FILE, all);
+}
+
+const RESERVED_IDS_FILE = path.join(DATA_DIR, 'drive-image-ids.json');
+export function getReservedImageId(key) {
+  return readJson(RESERVED_IDS_FILE, {})[key];
+}
+export function reserveImageId(key, id) {
+  const ids = readJson(RESERVED_IDS_FILE, {});
+  ids[key] = id;
+  writeJson(RESERVED_IDS_FILE, ids);
 }
