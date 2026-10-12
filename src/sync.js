@@ -19,7 +19,7 @@ function timeSuffix(date) {
 }
 
 // items: [{ buffer, ext, mimeType, senderName, timestamp, groupId }]
-export async function uploadImages(items, groupNameById, selectedGroupIds) {
+export async function uploadImages(items, groupNameById, selectedGroupIds, onUploaded = () => {}) {
   const parentId = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID;
   if (!parentId) {
     throw new Error('GOOGLE_DRIVE_PARENT_FOLDER_ID is not set in .env');
@@ -54,6 +54,8 @@ export async function uploadImages(items, groupNameById, selectedGroupIds) {
     usedNames.add(fileName);
 
     await uploadBuffer(item.buffer, fileName, item.mimeType, folderId);
+    // Only checkpoint an image after Drive confirms creation.
+    await onUploaded(item);
     bySender[senderName] = (bySender[senderName] || 0) + 1;
 
     const groupName = groupNameById[item.groupId] || item.groupId;
