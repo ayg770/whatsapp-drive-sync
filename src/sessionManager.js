@@ -11,6 +11,7 @@ import makeWASocket, {
 import { sessionAuthDir, removeSessionAuthDir, getGroupLastSynced, setGroupLastSynced } from './store.js';
 import { extractImageMessage, isGroupImageMessage } from './waUtils.js';
 import { uploadImages } from './sync.js';
+import { rememberContactNames, resolveSenderName } from './senderName.js';
 
 const logger = pino({ level: 'silent' });
 
@@ -87,10 +88,7 @@ function trackActivityFromMessages(session, messages) {
 }
 
 function trackContactNames(session, contacts) {
-  for (const contact of contacts || []) {
-    const name = contact.name || contact.notify || contact.verifiedName;
-    if (contact.id && name) session.contactNames.set(contact.id, name);
-  }
+  rememberContactNames(session.contactNames, contacts);
 }
 
 function scheduleExpiry(session, ms, reason) {
@@ -297,9 +295,6 @@ export async function syncSession(id, groupIds, lookbackDays) {
     const timestamp = Number(msg.messageTimestamp) * 1000 || Date.now();
     const groupId = msg.key.remoteJid;
     const imageMessage = extractImageMessage(msg.message);
-    const participant = msg.key.participant || msg.key.remoteJid;
-    const senderName =
-      session.contactNames.get(participant) || msg.pushName || participant?.split('@')[0] || 'unknown';
     try {
       const buffer = await downloadMediaMessage(
         msg,
@@ -311,7 +306,7 @@ export async function syncSession(id, groupIds, lookbackDays) {
         buffer,
         ext: imageMessage.mimetype?.includes('png') ? 'png' : 'jpg',
         mimeType: imageMessage.mimetype?.includes('png') ? 'image/png' : 'image/jpeg',
-        senderName,
+        senderName: resolveSenderName(msg, session.contactNames, session.sock.authState.creds.me?.name),
         timestamp,
         groupId,
       });

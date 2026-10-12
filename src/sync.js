@@ -1,7 +1,7 @@
 import { getOrCreateDateFolder, uploadBuffer, folderUrl } from './driveClient.js';
 
 function sanitize(name) {
-  return String(name).replace(/[\\/:*?"<>|]/g, '-').trim();
+  return String(name || 'שולח לא מזוהה').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-').trim() || 'שולח לא מזוהה';
 }
 
 function dateFolderName(date) {
@@ -19,7 +19,9 @@ function timeSuffix(date) {
 }
 
 // items: [{ buffer, ext, mimeType, senderName, timestamp, groupId }]
-export async function uploadImages(items, groupNameById, selectedGroupIds) {
+export async function uploadImages(items, groupNameById, selectedGroupIds, {
+  getFolder = getOrCreateDateFolder, upload = uploadBuffer
+} = {}) {
   const parentId = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID;
   if (!parentId) {
     throw new Error('GOOGLE_DRIVE_PARENT_FOLDER_ID is not set in .env');
@@ -37,7 +39,7 @@ export async function uploadImages(items, groupNameById, selectedGroupIds) {
   }
 
   const folderName = dateFolderName(new Date());
-  const folderId = await getOrCreateDateFolder(folderName, parentId);
+  const folderId = await getFolder(folderName, parentId);
 
   const bySender = {};
   const byGroup = {};
@@ -53,7 +55,7 @@ export async function uploadImages(items, groupNameById, selectedGroupIds) {
     }
     usedNames.add(fileName);
 
-    await uploadBuffer(item.buffer, fileName, item.mimeType, folderId);
+    await upload(item.buffer, fileName, item.mimeType, folderId);
     bySender[senderName] = (bySender[senderName] || 0) + 1;
 
     const groupName = groupNameById[item.groupId] || item.groupId;

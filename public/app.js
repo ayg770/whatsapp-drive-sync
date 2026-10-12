@@ -209,7 +209,10 @@ function showSummary(summary) {
     const byGroupText = Object.entries(summary.byGroup)
       .map(([name, count]) => `הועלו ${count} תמונות מקבוצת '${name}'`)
       .join('\n');
-    setStatus(`${byGroupText}\n\nתיקייה: "${summary.folderName}"\n${summary.folderUrl}`);
+    const bySenderText = Object.entries(summary.bySender || {})
+      .map(([name, count]) => `${name}: ${count} תמונות`)
+      .join('\n');
+    setStatus(`${byGroupText}\n\nלפי שולחים:\n${bySenderText}\n\nתיקייה: "${summary.folderName}"\n${summary.folderUrl}`);
   }
   showStep('groups');
   showGroupPickers();
