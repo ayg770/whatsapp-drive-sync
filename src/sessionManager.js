@@ -8,7 +8,7 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   DisconnectReason,
 } from '@whiskeysockets/baileys';
-import { sessionAuthDir, removeSessionAuthDir, getGroupLastSynced, setGroupLastSynced } from './store.js';
+import { sessionAuthDir, removeSessionAuthDir, wasImageUploaded, markImageUploaded } from './store.js';
 import { extractImageMessage, isGroupImageMessage } from './waUtils.js';
 import { uploadImages } from './sync.js';
 
@@ -18,7 +18,7 @@ const CONNECT_TIMEOUT_MS = 5 * 60 * 1000; // give up if nobody scans the QR / en
 const IDLE_TIMEOUT_MS = 20 * 60 * 1000; // stay linked across several syncs; close only after real inactivity
 const HISTORY_MAX_WAIT_MS = 2 * 60 * 1000; // like sitting in WhatsApp Web: wait for the full sync, capped
 const HISTORY_POLL_MS = 1000;
-const DEFAULT_LOOKBACK_DAYS = 21;
+const DEFAULT_LOOKBACK_DAYS = 7;
 const MAX_LOOKBACK_DAYS = 60; // sanity cap regardless of what the visitor picks
 
 function lookbackDaysToMs(lookbackDays) {
@@ -65,7 +65,7 @@ function waitForHistorySync(session, maxMs) {
 function trackChatTimestamps(session, chats) {
   for (const chat of chats || []) {
     if (chat.id?.endsWith('@g.us') && chat.conversationTimestamp) {
-      session.chatTimestamps.set(chat.id, Number(chat.conversationTimestamp));
+      session.chatTimestamps.set(chat.id, Number(chat.conversationTimestamp) * 1000);
     }
   }
 }
@@ -283,10 +283,8 @@ export async function syncSession(id, groupIds, lookbackDays) {
   const oldestAllowed = Date.now() - lookbackDaysToMs(lookbackDays);
 
   const toDownload = candidates.filter((msg) => {
-    const timestamp = Number(msg.messageTimestamp) * 1000 || Date.now();
-    const groupId = msg.key.remoteJid;
-    const cutoff = Math.max(getGroupLastSynced(groupId), oldestAllowed);
-    return timestamp > cutoff;
+    const timestamp = Number(msg.messageTimestamp) * 1000 || 0;
+    return timestamp >= oldestAllowed && !wasImageUploaded(msg.key.remoteJid, msg.key.id);
   });
 
   console.log(`Sync: downloading ${toDownload.length} photo(s) for session ${id}...`);
@@ -314,6 +312,7 @@ export async function syncSession(id, groupIds, lookbackDays) {
         senderName,
         timestamp,
         groupId,
+        messageId: msg.key.id,
       });
       console.log(`Sync: downloaded photo ${index + 1}/${toDownload.length}`);
     } catch (err) {
@@ -323,15 +322,17 @@ export async function syncSession(id, groupIds, lookbackDays) {
   }
 
   console.log(`Sync: uploading ${items.length} photo(s) to Drive...`);
-  const summary = await uploadImages(items, groupNameById, groupIds);
-  console.log(`Sync: done, uploaded ${summary.uploaded}.`);
-
-  const latestByGroup = {};
-  for (const item of items) {
-    latestByGroup[item.groupId] = Math.max(latestByGroup[item.groupId] || 0, item.timestamp);
-  }
-  for (const [groupId, ts] of Object.entries(latestByGroup)) {
-    setGroupLastSynced(groupId, ts);
+  let summary;
+  try {
+    summary = await uploadImages(items, groupNameById, groupIds, (item) => {
+      markImageUploaded(item.groupId, item.messageId);
+    });
+    console.log(`Sync: done, uploaded ${summary.uploaded}.`);
+  } finally {
+    // A failed Drive upload must not permanently lock this session in 'syncing'.
+    if (session.status === 'syncing') session.status = 'connected';
+    session.progress = null;
+    scheduleExpiry(session, IDLE_TIMEOUT_MS, 'idle');
   }
 
   // Stay linked: the visitor may want to sync another batch of groups without

@@ -3,6 +3,7 @@ import path from 'path';
 
 const DATA_DIR = path.resolve('data');
 const LAST_SYNCED_FILE = path.join(DATA_DIR, 'last-synced.json');
+const UPLOADED_FILE = path.join(DATA_DIR, 'uploaded-images.json');
 const SESSIONS_DIR = path.join(DATA_DIR, 'sessions');
 
 function ensureDataDir() {
@@ -51,3 +52,19 @@ export function removeSessionAuthDir(sessionId) {
 }
 
 ensureDataDir();
+
+// Track successfully uploaded WhatsApp message IDs rather than advancing a group
+// timestamp past images that may have failed to download or upload.
+export function wasImageUploaded(groupId, messageId) {
+  if (!groupId || !messageId) return false;
+  const all = readJson(UPLOADED_FILE, {});
+  return Boolean(all[groupId]?.[messageId]);
+}
+
+export function markImageUploaded(groupId, messageId) {
+  if (!groupId || !messageId) return;
+  const all = readJson(UPLOADED_FILE, {});
+  if (!all[groupId]) all[groupId] = {};
+  all[groupId][messageId] = true;
+  writeJson(UPLOADED_FILE, all);
+}
